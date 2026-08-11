@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import signal
 from pathlib import Path
 
 import pytest
@@ -62,6 +63,14 @@ def test_first_failure_is_forwarded_and_stops(entrypoint: EntryPoint, fake_uv: F
     assert fake_uv.calls() == [["tool", "install", "broken"]]
 
 
+@pytest.mark.skipif(os.name == "nt", reason="POSIX signal exit semantics")
+def test_signal_termination_is_normalized(entrypoint: EntryPoint, fake_uv: FakeUv) -> None:
+    env = fake_uv.env | {"GETGO_FAKE_SIGNAL_PACKAGE": "signaled"}
+    result = run_getgo(entrypoint, ["signaled", "must-not-run"], env)
+    assert result.returncode == 128 + signal.SIGTERM
+    assert fake_uv.calls() == [["tool", "install", "signaled"]]
+
+
 def test_existing_uv_in_default_user_location_skips_bootstrap(
     entrypoint: EntryPoint, fake_uv: FakeUv, tmp_path: Path
 ) -> None:
@@ -75,6 +84,16 @@ def test_existing_uv_in_default_user_location_skips_bootstrap(
     result = run_getgo(entrypoint, ["ruff"], env)
     assert result.returncode == 0, result.stderr
     assert fake_uv.calls()[:1] == [["tool", "install", "ruff"]]
+
+
+@pytest.mark.skipif(os.name == "nt", reason="POSIX executable permissions")
+def test_directory_named_uv_does_not_shadow_executable(entrypoint: EntryPoint, fake_uv: FakeUv, tmp_path: Path) -> None:
+    decoy_bin = tmp_path / "decoy-bin"
+    (decoy_bin / "uv").mkdir(parents=True)
+    env = fake_uv.env | {"PATH": os.pathsep.join((str(decoy_bin), str(fake_uv.bin_dir), str(fake_uv.tool_bin)))}
+    result = run_getgo(entrypoint, ["ruff"], env)
+    assert result.returncode == 0, result.stderr
+    assert fake_uv.calls()[0] == ["tool", "install", "ruff"]
 
 
 def test_update_shell_failure_cannot_fail_successful_installs(entrypoint: EntryPoint, fake_uv: FakeUv) -> None:

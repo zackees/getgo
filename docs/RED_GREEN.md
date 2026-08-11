@@ -22,6 +22,8 @@ in the body of commit `1a4abfb`.
 
 ## GREEN
 
-The implementation uses the same assertions. The final local and GitHub
-Actions commands and results are recorded in the issue-closing pull request.
-
+The implementation keeps every RED assertion. Later test changes are limited
+to cross-platform APE fixture wiring and stronger checks for signal exits,
+directory decoys, and Alpine's initially empty Python/uv state. The final local
+and GitHub Actions commands and results are recorded in the issue-closing pull
+request.

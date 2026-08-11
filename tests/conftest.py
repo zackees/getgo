@@ -130,6 +130,7 @@ def fake_uv(tmp_path: Path) -> FakeUv:
     script.write_text(
         """import json
 import os
+import signal
 import sys
 
 with open(os.environ["GETGO_FAKE_UV_LOG"], "a", encoding="utf-8") as stream:
@@ -143,6 +144,8 @@ if args == ["tool", "update-shell"]:
     raise SystemExit(int(os.environ.get("GETGO_FAKE_UPDATE_EXIT", "0")))
 if len(args) == 3 and args[:2] == ["tool", "install"]:
     package = args[2]
+    if package == os.environ.get("GETGO_FAKE_SIGNAL_PACKAGE"):
+        os.kill(os.getpid(), signal.SIGTERM)
     if package == os.environ.get("GETGO_FAKE_FAIL_PACKAGE"):
         print(f"fake uv: could not install {package}", file=sys.stderr)
         raise SystemExit(int(os.environ.get("GETGO_FAKE_FAIL_EXIT", "17")))

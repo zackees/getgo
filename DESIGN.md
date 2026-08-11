@@ -6,7 +6,7 @@ Ported and generalized from [soldr#2460](https://github.com/zackees/soldr/issues
 ## Public API — the contract everything is designed around
 
 ```
-curl <url> -o getgo && ./getgo <package> [<package>...] && <tool> --version
+export PATH="$HOME/.local/bin:$PATH" && curl <url> -o getgo && ./getgo <package> [<package>...] && <tool> --version
 ```
 
 Owner directive (2026-08-11): this line **is** the product. Constraints it
@@ -15,14 +15,14 @@ imposes, in priority order:
 1. **Every positional arg is a PyPI package name.** No verbs, no
    subcommands. `getgo soldr reld` installs `soldr` and `reld`. Reserved
    namespace: `--`-prefixed args only (`--help`, `--version`).
-2. **Immediately-chainable result**: after exit 0, each package's
-   executables must resolve in the same shell line (`soldr --version &&
-   red --version`). Mechanism: uv installs into `~/.local/bin`; PATH lookup
-   is per-command so new binaries there resolve mid-chain on any system
-   where that dir is already on PATH; getgo wires future shells silently
-   (`uv tool update-shell`) and prints the exact one-line fix when the
-   current shell can't resolve — never silently succeeds into a broken
-   chain.
+2. **Immediately-chainable result with the tool directory predeclared**:
+   the documented quick start places `~/.local/bin` on `PATH`, so each
+   package's executables resolve in the same shell line (`soldr --version &&
+   red --version`). PATH lookup is per-command, so binaries appearing there
+   mid-chain resolve without a new shell. getgo wires future shells
+   best-effort (`uv tool update-shell`) and prints the exact one-line fix when
+   a custom inherited `PATH` lacks the directory; a child cannot modify its
+   parent shell.
 3. **One hosted generic file** at a stable URL (GitHub Releases
    `latest/download/getgo`). No per-tool artifact required for the primary
    flow.
@@ -155,8 +155,9 @@ Python.
 - `uv run python scripts/build_ape.py` produces `dist/getgo` and removes its
   temporary architecture/debug sidecars before returning.
 - GitHub Actions runs deterministic Python conformance on Windows, macOS, and
-  Linux, shared Python+APE conformance on Linux, artifact smoke tests, and the
-  stock-Alpine network gate.
+  Linux, shared Python+APE conformance on Linux, native APE install/PATH/exit
+  smoke tests on Windows and macOS, artifact smoke tests, and the stock-Alpine
+  network gate.
 - A matching `v*` tag repeats the artifact tests, publishes the wheel and
   sdist through PyPI trusted publishing, and attaches the identical tested APE
   bytes as the GitHub Release asset named `getgo`.

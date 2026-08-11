@@ -3,6 +3,7 @@
 #include <limits.h>
 #include <signal.h>
 #include <spawn.h>
+#include <sys/stat.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
@@ -34,6 +35,15 @@ int DecodeStatus(int status) {
   if (WIFEXITED(status)) return WEXITSTATUS(status);
   if (WIFSIGNALED(status)) return 128 + WTERMSIG(status);
   return 1;
+}
+
+bool WaitFor(pid_t child, int *status) {
+  for (;;) {
+    if (waitpid(child, status, 0) >= 0) return true;
+    if (errno == EINTR) continue;
+    std::fprintf(stderr, "getgo: wait failed: %s\n", std::strerror(errno));
+    return false;
+  }
 }
 
 std::vector<char *> MutableArgv(const std::vector<std::string> &arguments) {
@@ -85,12 +95,7 @@ int Spawn(const std::vector<std::string> &arguments, int stdout_fd = -1, std::st
   }
 
   int status = 0;
-  while (waitpid(child, &status, 0) == -1) {
-    if (errno != EINTR) {
-      std::fprintf(stderr, "getgo: wait failed: %s\n", std::strerror(errno));
-      return 1;
-    }
-  }
+  if (!WaitFor(child, &status)) return 1;
   return DecodeStatus(status);
 }
 
@@ -133,23 +138,24 @@ int SpawnPipeline(const std::vector<std::string> &producer, const std::vector<st
   if (error) {
     kill(producer_child, SIGTERM);
     int ignored = 0;
-    waitpid(producer_child, &ignored, 0);
+    (void)WaitFor(producer_child, &ignored);
     std::fprintf(stderr, "getgo: failed to run %s: %s\n", consumer[0].c_str(), std::strerror(error));
     return 1;
   }
 
   int producer_status = 0;
   int consumer_status = 0;
-  while (waitpid(producer_child, &producer_status, 0) == -1 && errno == EINTR) {
-  }
-  while (waitpid(consumer_child, &consumer_status, 0) == -1 && errno == EINTR) {
-  }
+  bool producer_waited = WaitFor(producer_child, &producer_status);
+  bool consumer_waited = WaitFor(consumer_child, &consumer_status);
+  if (!producer_waited || !consumer_waited) return 1;
   int producer_code = DecodeStatus(producer_status);
   return producer_code ? producer_code : DecodeStatus(consumer_status);
 }
 
 bool IsFile(const std::string &path) {
-  return !path.empty() && access(path.c_str(), IsWindowsHost() ? F_OK : X_OK) == 0;
+  struct stat information;
+  return !path.empty() && stat(path.c_str(), &information) == 0 && S_ISREG(information.st_mode) &&
+         access(path.c_str(), IsWindowsHost() ? F_OK : X_OK) == 0;
 }
 
 std::string AbsolutePath(const std::string &path) {

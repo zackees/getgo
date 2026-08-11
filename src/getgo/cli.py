@@ -18,6 +18,10 @@ UV_INSTALL_URL_WINDOWS = "https://astral.sh/uv/install.ps1"
 PACKAGE_NAME = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$")
 
 
+def _normalize_returncode(returncode: int) -> int:
+    return 128 + abs(returncode) if returncode < 0 else returncode
+
+
 def _usage_error(message: str) -> int:
     print(f"getgo: {message}", file=sys.stderr)
     print(USAGE, file=sys.stderr)
@@ -77,14 +81,25 @@ def _run_unix_installer(downloader: str, arguments: list[str]) -> int:
             stdout=subprocess.PIPE,
         )
         assert download.stdout is not None
-        install = subprocess.Popen(["/bin/sh"], stdin=download.stdout)
+        try:
+            install = subprocess.Popen(["/bin/sh"], stdin=download.stdout)
+        except OSError:
+            download.stdout.close()
+            if download.poll() is None:
+                download.terminate()
+            try:
+                download.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                download.kill()
+                download.wait()
+            raise
         download.stdout.close()
         install_code = install.wait()
         download_code = download.wait()
     except OSError as error:
         print(f"getgo: failed to start uv installer: {error}", file=sys.stderr)
         return 1
-    return download_code if download_code else install_code
+    return _normalize_returncode(download_code if download_code else install_code)
 
 
 def _bootstrap_uv() -> int:
@@ -94,16 +109,18 @@ def _bootstrap_uv() -> int:
             print("getgo: PowerShell is required to install uv", file=sys.stderr)
             return 1
         try:
-            return subprocess.run(
-                [
-                    powershell,
-                    "-ExecutionPolicy",
-                    "ByPass",
-                    "-c",
-                    f"irm {UV_INSTALL_URL_WINDOWS} | iex",
-                ],
-                check=False,
-            ).returncode
+            return _normalize_returncode(
+                subprocess.run(
+                    [
+                        powershell,
+                        "-ExecutionPolicy",
+                        "ByPass",
+                        "-c",
+                        f"irm {UV_INSTALL_URL_WINDOWS} | iex",
+                    ],
+                    check=False,
+                ).returncode
+            )
         except OSError as error:
             print(f"getgo: failed to start uv installer: {error}", file=sys.stderr)
             return 1
@@ -134,10 +151,15 @@ def _ensure_uv() -> tuple[Path | None, int]:
 
 def _run_uv(uv: Path, arguments: list[str], *, capture: bool = False) -> subprocess.CompletedProcess[str] | None:
     try:
+        if capture:
+            return subprocess.run(
+                [str(uv), *arguments],
+                stdout=subprocess.PIPE,
+                text=True,
+                check=False,
+            )
         return subprocess.run(
             [str(uv), *arguments],
-            capture_output=capture,
-            text=capture,
             check=False,
         )
     except OSError as error:
@@ -188,7 +210,7 @@ def run(args: Sequence[str]) -> int:
         if completed is None:
             return 1
         if completed.returncode:
-            return completed.returncode
+            return _normalize_returncode(completed.returncode)
 
     _finish_path_setup(uv)
     return 0

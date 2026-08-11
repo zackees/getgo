@@ -3,7 +3,8 @@
 **Install any PyPI tools on any machine with one downloaded file.**
 
 ```bash
-curl -LsSf https://github.com/zackees/getgo/releases/latest/download/getgo -o getgo \
+export PATH="$HOME/.local/bin:$PATH" \
+  && curl -LsSf https://github.com/zackees/getgo/releases/latest/download/getgo -o getgo \
   && chmod +x getgo \
   && ./getgo soldr reld \
   && soldr --version \
@@ -17,6 +18,7 @@ unchanged.
 Windows (same file, it's a real PE):
 
 ```powershell
+$env:Path = "$HOME\.local\bin;$env:Path"
 iwr https://github.com/zackees/getgo/releases/latest/download/getgo -OutFile getgo.com
 .\getgo.com soldr reld
 soldr --version
@@ -47,13 +49,13 @@ designed backward from it:
 - **Every argument is a PyPI package name.** No subcommands, no verbs, no
   flag ceremony. `getgo soldr reld` installs `soldr` and `reld`. (Only
   `--`-prefixed args are reserved: `--help`, `--version`.)
-- **Each package's executables are runnable immediately after exit 0** —
-  `soldr --version && red --version` chains in the same shell line. getgo
-  guarantees this by installing through uv into `~/.local/bin` (on `PATH`
-  on modern systems — and PATH lookup is per-command, so binaries that
-  appear mid-chain resolve without a new shell), silently wiring future
-  shells via uv's shell setup, and, when the current shell genuinely can't
-  resolve the dir, saying so with the exact one-line fix before exiting.
+- **Each package's executables are immediately chainable when uv's tool bin
+  directory is already on `PATH`.** The quick starts above predeclare the
+  default `~/.local/bin` location, so `soldr --version && red --version`
+  resolves in the same shell line. getgo also asks uv to wire future shells.
+  If a custom or inherited environment does not contain the directory,
+  getgo prints the exact `export` or `$env:Path` command to run in the current
+  shell; a child process cannot modify its parent shell.
 - **Exit code**: 0 iff every package installed. First failure is reported
   with uv's error attached.
 - **Distribution-independent**: the contract is identical from the curl'd
