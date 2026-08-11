@@ -1,7 +1,7 @@
-# lichen — design
+# getgo — design
 
 Ported and generalized from [soldr#2460](https://github.com/zackees/soldr/issues/2460)
-(2026-08-11). soldr is the first customer, not a dependency: lichen bakes a
+(2026-08-11). soldr is the first customer, not a dependency: getgo bakes a
 universal installer for **any** PyPI-distributed tool.
 
 ## Product
@@ -12,7 +12,7 @@ Two deliverables in this repo:
    `cosmoc++` into a fat APE (x86_64 + aarch64 via `apelink`; `-mtiny` keeps
    the empty loader ~180 KB). Behavior: read baked config → ensure uv →
    `uv tool install <package>` → forward exit code.
-2. **`lichen` (PyPI)** — the builder CLI. `lichen bake --package <name>
+2. **`getgo` (PyPI)** — the builder CLI. `getgo bake --package <name>
    [--uv-version <pin>] [-o out.com]` compiles the loader (or reuses a
    prebuilt one shipped in the wheel), then appends the config as a ZIP entry.
 
@@ -28,11 +28,11 @@ Grounded in the APE/Cosmopolitan research (sources at bottom):
 - **Config access**: Cosmopolitan libc resolves its own executable path
   (`GetProgramExecutableName`), parses its own ZIP central directory, and
   exposes entries under `/zip/…` with transparent deflate-on-read. Lichen
-  stores exactly one entry: `/zip/lichen.json` (package name, optional uv
+  stores exactly one entry: `/zip/getgo.json` (package name, optional uv
   pin, verbosity defaults).
 - **No exec from `/zip/`**: direct exec of ZIP members is compiled out in
   Cosmopolitan (`libc/proc/execve.c`, the zipos branch is `if (0 && …)`).
-  Irrelevant to lichen's config-only use, but it is the reason the fat-binary
+  Irrelevant to getgo's config-only use, but it is the reason the fat-binary
   design was dropped: payload extraction machinery (content-addressed cache,
   atomic rename, GC) all became unnecessary once uv owns artifact delivery.
 - **uv detection**: check `PATH`, then uv's default install locations
@@ -54,14 +54,14 @@ Grounded in the APE/Cosmopolitan research (sources at bottom):
 - **Post-install**: if the installed tool is not resolvable on `PATH`, print
   uv's PATH hint. Never mutate shell rc files.
 
-## Builder pipeline (`lichen bake`)
+## Builder pipeline (`getgo bake`)
 
 1. Obtain the loader binary. First cut: compile at bake time via
    `clang-tool-chain-cosmocpp` (clang-tool-chain PyPI package bundles cosmocc
    4.0.2 for win-x64 / linux-x64 / linux-arm64 / mac-x64 / mac-arm64).
-   Later optimization: ship a prebuilt loader in the lichen wheel and skip
+   Later optimization: ship a prebuilt loader in the getgo wheel and skip
    compilation entirely — then `bake` is sub-second and toolchain-free.
-2. Append `lichen.json` as a ZIP entry. APE files are valid ZIPs (central
+2. Append `getgo.json` as a ZIP entry. APE files are valid ZIPs (central
    directory at EOF); Python stdlib `zipfile` in mode `"a"` explicitly
    supports appending an archive to a non-ZIP-prefixed file (the
    self-extracting-exe pattern). Fallback if zipos rejects the layout: the
@@ -90,11 +90,11 @@ Python.
   an escape hatch. Acceptable for a developer-tool audience.
 - **Wine binfmt_misc**: desktop Linux boxes with Wine registered for `MZ` can
   hijack APE binaries; the fix is a more specific binfmt rule or the `ape`
-  loader — a docs FAQ entry, not lichen code.
+  loader — a docs FAQ entry, not getgo code.
 - **Network is required on first run** (uv installer + wheel download). The
   fat-binary offline story was explicitly traded away.
 - **Target package must ship wheels for the user's platform** — including
-  musllinux for Alpine users. lichen's docs must call this out to tool
+  musllinux for Alpine users. getgo's docs must call this out to tool
   authors (soldr: verify musllinux wheels are published before switchover).
 
 ## Decisions
@@ -104,7 +104,7 @@ Python.
   and is x86-64-only in practice. The loader is small; everything real
   lives in the target tool.
 - **Config-only ZIP use** — payloads stay on PyPI. This is the core design
-  bet: uv is the universal installer; lichen is only the universal *first
+  bet: uv is the universal installer; getgo is only the universal *first
   step*.
 - **`uv tool install`** over `uv pip install --system` (PEP 668 / no-Python
   hosts).
@@ -116,7 +116,7 @@ Python.
 
 - Pin uv by default at bake time (reproducibility) vs latest (freshness)?
   Leaning: `--uv-version` optional, default latest.
-- Ship a prebuilt loader in the lichen wheel from v0.2 (removes
+- Ship a prebuilt loader in the getgo wheel from v0.2 (removes
   clang-tool-chain from the bake path entirely)?
 - `run <pkg> …` verb (`uvx`-style ephemeral execution) as a follow-up
   surface?
