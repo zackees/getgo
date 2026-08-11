@@ -12,7 +12,7 @@ from typing import NoReturn
 from getgo import __version__
 
 USAGE = "Usage: getgo <package> [<package>...]"
-HELP = f"{USAGE}\nInstall one or more PyPI tools with uv."
+HELP = f"{USAGE}\nInstall PyPI packages as persistent uv tools with managed Python."
 UV_INSTALL_URL_UNIX = "https://astral.sh/uv/install.sh"
 UV_INSTALL_URL_WINDOWS = "https://astral.sh/uv/install.ps1"
 PACKAGE_NAME = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?$")
@@ -213,7 +213,7 @@ def run(args: Sequence[str]) -> int:
         return result
 
     for package in packages:
-        completed = _run_uv(uv, ["tool", "install", package])
+        completed = _run_uv(uv, ["tool", "install", "--managed-python", package])
         if completed is None:
             return 1
         if completed.returncode:

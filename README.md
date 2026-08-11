@@ -39,7 +39,7 @@ Already have Python tooling? getgo is also a normal PyPI package with the
 exact same CLI:
 
 ```bash
-pip install getgo        # or: uv tool install getgo
+pip install getgo        # or: uv tool install --managed-python getgo
 getgo ruff
 ```
 
@@ -60,6 +60,10 @@ designed backward from it:
 - **Every argument is a PyPI package name.** No subcommands, no verbs, no
   flag ceremony. `getgo ruff` installs `ruff`. (Only
   `--`-prefixed args are reserved: `--help`, `--version`.)
+- **Every install follows one path:** `uv tool install --managed-python`.
+  Each package gets a persistent, isolated per-user environment backed only
+  by uv-managed Python; target tools are never installed into or based on
+  system Python.
 - **Each package's executables are immediately chainable when uv's tool bin
   directory is already on `PATH`.** The quick starts above predeclare the
   default `~/.local/bin` location, so `getgo ruff && ruff --version`
@@ -90,10 +94,10 @@ Three stages, each owned by the layer best at it:
 ```
  stage 0                    stage 1                     stage 2
  ┌─────────────────┐        ┌──────────────────┐        ┌──────────────────────┐
- │ getgo           │        │ ensure uv        │        │ uv tool install pkg  │
- │ (APE loader,    │ ─────► │ (official        │ ─────► │ (wheel + managed     │
- │  ~200 KB, fat   │        │  installer, or   │        │  CPython if needed,  │
- │  x86_64+arm64)  │        │  already there)  │        │  PATH shim)          │
+ │ getgo           │        │ ensure uv        │        │ uv tool install      │
+ │ (APE loader,    │ ─────► │ (official        │ ─────► │ --managed-python pkg │
+ │  ~200 KB, fat   │        │  installer, or   │        │ (isolated env +      │
+ │  x86_64+arm64)  │        │  already there)  │        │  PATH launcher)      │
  └─────────────────┘        └──────────────────┘        └──────────────────────┘
 ```
 
@@ -138,21 +142,22 @@ path.
 
 ### Stage 2 — delegation to uv
 
-The loader spawns `uv tool install <package>`, waits, and forwards the exit
-code (spawn/wait is the one shape that behaves identically everywhere —
-Cosmopolitan's `execve` on Windows spawns rather than replaces). uv then:
+The loader spawns `uv tool install --managed-python <package>`, waits, and
+forwards the exit code (spawn/wait is the one shape that behaves identically
+everywhere — Cosmopolitan's `execve` on Windows spawns rather than replaces).
+The flag forbids uv from selecting a system interpreter. uv then:
 
 - resolves the right wheel for the host (`win_amd64`, `macosx_*`,
   `manylinux_*_{x86_64,aarch64}`, `musllinux_*_{x86_64,aarch64}`),
-- provisions a **managed CPython** if the host has no Python — including
-  musl builds, so a stock Alpine container with no Python works,
-- installs into an isolated env and links the executable into
-  `~/.local/bin`.
+- selects a compatible **uv-managed CPython**, downloading one when needed —
+  including musl builds, so a stock Alpine container with no Python works,
+- installs into a persistent isolated environment and links the executable
+  into uv's XDG/user executable directory (`~/.local/bin` by default).
 
 getgo always finishes by ensuring PATH wiring for future shells (uv's
 `uv tool update-shell`) and, if the *current* shell can't resolve
-`~/.local/bin`, printing the exact one-line `export`/`$env:` fix — in
-service of the public-API guarantee that installed tools chain immediately.
+that executable directory, printing the exact one-line `export`/`$env:` fix —
+in service of the public-API guarantee that installed tools chain immediately.
 
 **Requirement this places on a package:** it must publish wheels for the
 platforms its users run — *including `musllinux` wheels* if Alpine matters.

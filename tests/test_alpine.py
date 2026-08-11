@@ -23,11 +23,24 @@ export PATH="$HOME/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:
 ! command -v python
 ! command -v python3
 ! command -v uv
+
+# A discoverable system-Python decoy must never be consulted.
+mkdir -p /tmp/system-bin
+cat > /tmp/system-bin/python3 <<'EOF'
+#!/bin/sh
+echo invoked >> /tmp/system-python-calls
+exit 93
+EOF
+chmod +x /tmp/system-bin/python3
+ln -s python3 /tmp/system-bin/python
+export PATH="$HOME/.local/bin:/tmp/system-bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+
 cp /artifact/getgo /tmp/getgo
 chmod +x /tmp/getgo
 
 # A real package install must bootstrap uv and a user-managed Python.
 /bin/sh /tmp/getgo ruff
+test ! -e /tmp/system-python-calls
 ruff --version | grep -F "ruff "
 test -x "$HOME/.local/bin/uv"
 test ! -e /usr/bin/python
@@ -67,7 +80,7 @@ failure_code=$?
 set -e
 test "$failure_code" -eq 37
 test "$(wc -l < /tmp/uv-calls)" -eq 1
-grep -Fx "tool install getgo-package-that-does-not-exist-1" /tmp/uv-calls
+grep -Fx "tool install --managed-python getgo-package-that-does-not-exist-1" /tmp/uv-calls
 
 # A subsequent install must reuse uv instead of running the bootstrap again.
 cat > /tmp/shim/wget <<'EOF'

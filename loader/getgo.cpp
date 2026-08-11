@@ -344,7 +344,7 @@ void FinishPathSetup(const std::string &uv) {
 
 int ProgramMain(int argc, char **argv) {
   if (argc == 2 && std::strcmp(argv[1], "--help") == 0) {
-    std::printf("%s\nInstall one or more PyPI tools with uv.\n", kUsage);
+    std::printf("%s\nInstall PyPI packages as persistent uv tools with managed Python.\n", kUsage);
     return 0;
   }
   if (argc == 2 && std::strcmp(argv[1], "--version") == 0) {
@@ -369,7 +369,7 @@ int ProgramMain(int argc, char **argv) {
   }
 
   for (int i = 1; i < argc; ++i) {
-    int code = Spawn({uv, "tool", "install", argv[i]});
+    int code = Spawn({uv, "tool", "install", "--managed-python", argv[i]});
     if (code) return code;
   }
   FinishPathSetup(uv);

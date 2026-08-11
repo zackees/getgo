@@ -13,12 +13,12 @@ Owner directive (2026-08-11): this line **is** the product. Constraints it
 imposes, in priority order:
 
 1. **Every positional arg is a PyPI package name.** No verbs, no
-   subcommands. `getgo soldr reld` installs `soldr` and `reld`. Reserved
+   subcommands. `getgo ruff` installs `ruff`. Reserved
    namespace: `--`-prefixed args only (`--help`, `--version`).
 2. **Immediately-chainable result with the tool directory predeclared**:
    the documented quick start places `~/.local/bin` on `PATH`, so each
-   package's executables resolve in the same shell line (`soldr --version &&
-   red --version`). PATH lookup is per-command, so binaries appearing there
+   package's executables resolve in the same shell line (`getgo ruff &&
+   ruff --version`). PATH lookup is per-command, so binaries appearing there
    mid-chain resolve without a new shell. getgo wires future shells
    best-effort (`uv tool update-shell`) and prints the exact one-line fix when
    a custom inherited `PATH` lacks the directory; a child cannot modify its
@@ -34,11 +34,11 @@ imposes, in priority order:
 1. **`loader/`** — a small C++ program (~150–400 lines) compiled with
    `cosmoc++` into a fat APE (x86_64 + aarch64 via `apelink`; `-mtiny` keeps
    the empty loader ~180 KB). Behavior: parse argv (package list) → ensure
-   uv → `uv tool install <pkg>` per package → PATH wiring → forward exit
-   code. This binary, published to GitHub Releases, is the deliverable.
+   uv → `uv tool install --managed-python <pkg>` per package → PATH wiring →
+   forward exit code. This binary, published to GitHub Releases, is the deliverable.
 2. **`getgo` (PyPI)** — the same public API as a normal Python package:
    `pip install getgo` puts a `getgo` CLI on PATH implementing the identical
-   contract (`getgo <package>...` → ensure uv → `uv tool install` each).
+   contract (`getgo <package>...` → ensure uv → managed `uv tool install` each).
    The `.com` file serves machines with nothing installed; the PyPI package
    serves machines that already have Python — two front doors, one API.
    Also hosts the secondary builder surface (`getgo bake --package <name>
@@ -74,11 +74,12 @@ Grounded in the APE/Cosmopolitan research (sources at bottom):
   `wget -qO- … | sh` (busybox wget suffices on Alpine); Windows:
   `powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"`.
   No TLS/HTTP client is linked into the loader.
-- **Delegation**: `uv tool install <package>`. Chosen over
+- **Delegation**: `uv tool install --managed-python <package>`. Chosen over
   `uv pip install --system`, which requires a pre-existing system Python and
-  fights PEP 668 externally-managed distros. `uv tool install` provisions a
-  managed CPython when the host has none, installs into an isolated env, and
-  links the executable into `~/.local/bin`.
+  fights PEP 668 externally-managed distros. `--managed-python` forbids the
+  system-interpreter fallback, downloads a compatible uv-managed Python when
+  needed, installs into a persistent isolated environment, and links the
+  executable into uv's XDG/user executable directory.
 - **Spawn semantics**: spawn + wait + forward exit code everywhere
   (Cosmopolitan's `execve` on Windows spawns a child rather than replacing
   the process, so spawn/wait is the one portable shape).
@@ -142,8 +143,9 @@ Python.
 - **Config-only ZIP use** — payloads stay on PyPI. This is the core design
   bet: uv is the universal installer; getgo is only the universal *first
   step*.
-- **`uv tool install`** over `uv pip install --system` (PEP 668 / no-Python
-  hosts).
+- **`uv tool install --managed-python`** over `uv pip install --system`
+  (one persistent per-user tool path, isolated environments, no system-Python
+  dependency, and no PEP 668 conflict).
 - **Official uv install scripts over vendored downloads**: the scripts do
   their own platform/arch/libc detection; pinning is offered via config
   (`UV_INSTALLER_VERSION`-style env or versioned script URL) not vendoring.

@@ -101,8 +101,8 @@ public static class FakeUv {
 
     public static int Main(string[] args) {
         Log(args);
-        if (args.Length == 3 && args[0] == "tool" && args[1] == "install") {
-            string package = args[2];
+        if (args.Length == 4 && args[0] == "tool" && args[1] == "install" && args[2] == "--managed-python") {
+            string package = args[3];
             if (package == Environment.GetEnvironmentVariable("GETGO_FAKE_FAIL_PACKAGE")) {
                 Console.Error.WriteLine("fake uv: could not install " + package);
                 return EnvInt("GETGO_FAKE_FAIL_EXIT", 17);
@@ -269,8 +269,8 @@ if args == ["tool", "dir", "--bin"]:
     raise SystemExit(int(os.environ.get("GETGO_FAKE_DIR_EXIT", "0")))
 if args == ["tool", "update-shell"]:
     raise SystemExit(int(os.environ.get("GETGO_FAKE_UPDATE_EXIT", "0")))
-if len(args) == 3 and args[:2] == ["tool", "install"]:
-    package = args[2]
+if len(args) == 4 and args[:3] == ["tool", "install", "--managed-python"]:
+    package = args[3]
     if package == os.environ.get("GETGO_FAKE_SIGNAL_PACKAGE"):
         os.kill(os.getpid(), signal.SIGTERM)
     if package == os.environ.get("GETGO_FAKE_FAIL_PACKAGE"):
