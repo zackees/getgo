@@ -27,7 +27,7 @@ Grounded in the APE/Cosmopolitan research (sources at bottom):
   local `cc` (first run needs Xcode CLT) or found at `/usr/local/bin/ape`.
 - **Config access**: Cosmopolitan libc resolves its own executable path
   (`GetProgramExecutableName`), parses its own ZIP central directory, and
-  exposes entries under `/zip/…` with transparent deflate-on-read. Lichen
+  exposes entries under `/zip/…` with transparent deflate-on-read. getgo
   stores exactly one entry: `/zip/getgo.json` (package name, optional uv
   pin, verbosity defaults).
 - **No exec from `/zip/`**: direct exec of ZIP members is compiled out in
