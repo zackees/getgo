@@ -20,6 +20,8 @@ def test_stock_alpine_bootstrap_chain_failure_and_reuse() -> None:
 set -eu
 export HOME=/tmp/getgo-home
 export PATH="$HOME/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+! command -v python3
+! command -v uv
 cp /artifact/getgo /tmp/getgo
 chmod +x /tmp/getgo
 

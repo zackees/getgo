@@ -20,6 +20,7 @@ INSTALL_URL_WINDOWS = "https://astral.sh/uv/install.ps1"
 class EntryPoint:
     name: str
     command: tuple[str, ...]
+    source_tree: bool = True
 
 
 @dataclass
@@ -42,10 +43,34 @@ def _entrypoint_params() -> list[str]:
     return [part.strip() for part in value.split(",") if part.strip()]
 
 
+@pytest.fixture(scope="session")
+def ape_loader(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    artifact = ROOT / "dist" / "getgo"
+    assert artifact.is_file(), "build dist/getgo before running APE conformance tests"
+    cache = tmp_path_factory.mktemp("ape-loader")
+    environment = os.environ.copy()
+    environment["TMPDIR"] = str(cache)
+    result = subprocess.run(
+        ["/bin/sh", str(artifact), "--version"],
+        env=environment,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    loaders = list(cache.glob(".ape-*"))
+    assert len(loaders) == 1, f"expected one extracted APE loader, found {loaders}"
+    return loaders[0]
+
+
 @pytest.fixture(params=_entrypoint_params())
 def entrypoint(request: pytest.FixtureRequest, tmp_path: Path) -> EntryPoint:
     if request.param == "python":
         return EntryPoint("python", (sys.executable, "-m", "getgo"))
+    if request.param == "installed":
+        command = os.environ.get("GETGO_INSTALLED_COMMAND")
+        assert command, "set GETGO_INSTALLED_COMMAND to the wheel-installed getgo executable"
+        return EntryPoint("installed", (command,), source_tree=False)
     if request.param == "ape":
         artifact = ROOT / "dist" / "getgo"
         assert artifact.is_file(), "build dist/getgo before running APE conformance tests"
@@ -54,7 +79,8 @@ def entrypoint(request: pytest.FixtureRequest, tmp_path: Path) -> EntryPoint:
             shutil.copyfile(artifact, windows_artifact)
             return EntryPoint("ape", (str(windows_artifact),))
         artifact.chmod(artifact.stat().st_mode | stat.S_IXUSR)
-        return EntryPoint("ape", (str(artifact),))
+        loader = request.getfixturevalue("ape_loader")
+        return EntryPoint("ape", (str(loader), str(artifact)))
     raise AssertionError(f"unknown entry point: {request.param}")
 
 
@@ -68,8 +94,11 @@ def run_getgo(
     merged = os.environ.copy()
     merged.update(env)
     source_path = str(ROOT / "src")
-    old_pythonpath = merged.get("PYTHONPATH")
-    merged["PYTHONPATH"] = source_path if not old_pythonpath else os.pathsep.join((source_path, old_pythonpath))
+    if entrypoint.source_tree:
+        old_pythonpath = merged.get("PYTHONPATH")
+        merged["PYTHONPATH"] = source_path if not old_pythonpath else os.pathsep.join((source_path, old_pythonpath))
+    else:
+        merged.pop("PYTHONPATH", None)
     return subprocess.run(
         [*entrypoint.command, *args],
         cwd=ROOT,
@@ -191,7 +220,7 @@ shutil.copyfile(os.environ["GETGO_FAKE_UV_SOURCE"], target / "uv.cmd")
                 f"#!{sys.executable}\n"
                 "import json, os, sys\n"
                 "with open(os.environ['GETGO_FAKE_TRANSPORT_LOG'], 'a', encoding='utf-8') as stream:\n"
-                "    stream.write(json.dumps(sys.argv[1:]) + '\\\\n')\n"
+                "    stream.write(json.dumps(sys.argv[1:]) + chr(10))\n"
                 f"print({payload!r})\n",
             )
 

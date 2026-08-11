@@ -153,12 +153,37 @@ files are valid ZIP archives; Cosmopolitan exposes entries under `/zip/…`).
 Same loader, zero-argument UX for your users. Secondary surface — the hosted
 generic binary is the product.
 
-## Repository layout (planned)
+## Repository layout
 
 - `loader/` — the C++ APE loader (`cosmoc++`, `-mtiny`, fat x86_64+aarch64)
-- `src/getgo/` — the Python builder/release CLI (`getgo bake`, CI packaging)
-- `tests/` — unit tests (argv mapping, uv detection, installer-command
-  selection) plus the Alpine-musl Docker gate that is this repo's merge bar
+- `src/getgo/` — the Python implementation distributed through PyPI
+- `scripts/` — reproducible APE build and architecture validation
+- `tests/` — the shared black-box contract plus the Alpine-musl merge gate
+
+## Development
+
+[uv](https://docs.astral.sh/uv/) is the only development prerequisite.
+
+```bash
+uv sync --locked --extra test --extra ape
+uv run ruff check .
+uv run pytest -q tests/test_cli_contract.py
+uv run python scripts/build_ape.py
+GETGO_ENTRYPOINTS=python,ape uv run pytest -q tests/test_cli_contract.py
+GETGO_RUN_ALPINE=1 uv run pytest -q tests/test_alpine.py
+uv build
+```
+
+The APE build pins `clang-tool-chain==1.5.8` in `pyproject.toml` and
+`uv.lock`. It writes toolchain and architecture metadata into the APE's ZIP
+directory and validates both the AMD64 PE and embedded AArch64 ELF before
+release. See [`docs/RED_GREEN.md`](docs/RED_GREEN.md) for the preserved
+test-first evidence.
+
+Package arguments must be valid PyPI distribution names: ASCII letters,
+digits, `.`, `_`, and `-`, beginning and ending with a letter or digit. They
+are always passed to uv as individual process arguments and are never shell
+evaluated.
 
 ## Background: Cosmopolitan, APE, and the toolchain
 
@@ -187,9 +212,6 @@ See [DESIGN.md](DESIGN.md) for the full loader contract, platform caveats,
 decisions, and test strategy. Design lineage:
 [soldr#2460](https://github.com/zackees/soldr/issues/2460).
 
-## Status
+## License
 
-Design phase. Implementation tracked in
-[issue #1](https://github.com/zackees/getgo/issues/1). The
-[`getgo`](https://pypi.org/project/getgo/) name on PyPI is reserved
-(placeholder release).
+BSD-3-Clause. See [LICENSE](LICENSE).

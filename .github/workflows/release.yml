@@ -1,0 +1,57 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: pypi
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v9
+        with:
+          enable-cache: true
+      - run: uv sync --locked --extra test --extra ape
+      - name: Verify tag matches package version
+        shell: bash
+        run: |
+          version="$(uv run python -c 'import getgo; print(getgo.__version__)')"
+          test "$GITHUB_REF_NAME" = "v$version"
+      - name: Build release artifacts
+        run: |
+          uv run python scripts/build_ape.py
+          uv run python scripts/check_ape.py
+          uv build
+      - name: Test release artifacts
+        run: |
+          GETGO_ENTRYPOINTS=python,ape uv run pytest -q tests/test_cli_contract.py
+          GETGO_TEST_BUILT_DISTS=1 uv run pytest -q tests/test_artifacts.py
+          uv venv "$RUNNER_TEMP/getgo-wheel"
+          uv pip install --python "$RUNNER_TEMP/getgo-wheel/bin/python" dist/*.whl
+          GETGO_ENTRYPOINTS=installed \
+          GETGO_INSTALLED_COMMAND="$RUNNER_TEMP/getgo-wheel/bin/getgo" \
+            uv run pytest -q tests/test_cli_contract.py
+          GETGO_RUN_ALPINE=1 uv run pytest -q tests/test_alpine.py
+      - name: Stage Python distributions
+        run: |
+          mkdir python-dist
+          cp dist/*.whl dist/*.tar.gz python-dist/
+      - name: Publish to PyPI with trusted publishing
+        uses: pypa/gh-action-pypi-publish@v1.14.2
+        with:
+          packages-dir: python-dist/
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v3.0.2
+        with:
+          generate_release_notes: true
+          files: |
+            dist/getgo
+            dist/*.whl
+            dist/*.tar.gz

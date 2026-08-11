@@ -82,8 +82,11 @@ Grounded in the APE/Cosmopolitan research (sources at bottom):
 - **Spawn semantics**: spawn + wait + forward exit code everywhere
   (Cosmopolitan's `execve` on Windows spawns a child rather than replacing
   the process, so spawn/wait is the one portable shape).
-- **Post-install**: if the installed tool is not resolvable on `PATH`, print
-  uv's PATH hint. Never mutate shell rc files.
+- **Post-install**: query the executable directory with `uv tool dir --bin`,
+  run `uv tool update-shell` best-effort for future shells, and, if the
+  inherited `PATH` does not contain that directory, print the exact current
+  Bash or PowerShell command. A shell-profile update failure cannot turn
+  successful package installation into failure.
 
 ## Builder pipeline (`getgo bake`)
 
@@ -145,15 +148,19 @@ Python.
   their own platform/arch/libc detection; pinning is offered via config
   (`UV_INSTALLER_VERSION`-style env or versioned script URL) not vendoring.
 
-## Open questions
+## Release implementation
 
-- Pin uv by default at bake time (reproducibility) vs latest (freshness)?
-  Leaning: `--uv-version` optional, default latest.
-- Ship a prebuilt loader in the getgo wheel from v0.2 (removes
-  clang-tool-chain from the bake path entirely)?
-- `run <pkg> …` verb (`uvx`-style ephemeral execution) as a follow-up
-  surface?
-- License (owner call before first release).
+- The build dependency is pinned to `clang-tool-chain==1.5.8`; the uv
+  bootstrap intentionally follows uv's latest official installer.
+- `uv run python scripts/build_ape.py` produces `dist/getgo` and removes its
+  temporary architecture/debug sidecars before returning.
+- GitHub Actions runs deterministic Python conformance on Windows, macOS, and
+  Linux, shared Python+APE conformance on Linux, artifact smoke tests, and the
+  stock-Alpine network gate.
+- A matching `v*` tag repeats the artifact tests, publishes the wheel and
+  sdist through PyPI trusted publishing, and attaches the identical tested APE
+  bytes as the GitHub Release asset named `getgo`.
+- The project is released under BSD-3-Clause.
 
 ## Sources
 

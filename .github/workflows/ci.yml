@@ -1,0 +1,77 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  python-conformance:
+    name: Python (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v9
+        with:
+          enable-cache: true
+      - run: uv sync --locked --extra test
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+      - name: Run Python conformance
+        run: uv run pytest -q tests/test_cli_contract.py
+        env:
+          GETGO_ENTRYPOINTS: python
+
+  artifacts-and-alpine:
+    name: Fat APE, packages, and Alpine
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v9
+        with:
+          enable-cache: true
+      - run: uv sync --locked --extra test --extra ape
+      - name: Build and validate fat APE
+        shell: bash
+        run: |
+          uv run python scripts/build_ape.py
+          first_sha="$(sha256sum dist/getgo | cut -d' ' -f1)"
+          uv run python scripts/build_ape.py
+          second_sha="$(sha256sum dist/getgo | cut -d' ' -f1)"
+          test "$first_sha" = "$second_sha"
+          uv run python scripts/check_ape.py
+      - name: Build wheel and sdist
+        run: uv build
+      - name: Run shared Python and APE conformance
+        run: uv run pytest -q tests/test_cli_contract.py
+        env:
+          GETGO_ENTRYPOINTS: python,ape
+      - name: Smoke built artifacts
+        run: uv run pytest -q tests/test_artifacts.py
+        env:
+          GETGO_TEST_BUILT_DISTS: "1"
+      - name: Run conformance from the installed wheel
+        shell: bash
+        run: |
+          uv venv "$RUNNER_TEMP/getgo-wheel"
+          uv pip install --python "$RUNNER_TEMP/getgo-wheel/bin/python" dist/*.whl
+          GETGO_ENTRYPOINTS=installed \
+          GETGO_INSTALLED_COMMAND="$RUNNER_TEMP/getgo-wheel/bin/getgo" \
+            uv run pytest -q tests/test_cli_contract.py
+      - name: Run stock Alpine network gate
+        run: uv run pytest -q tests/test_alpine.py
+        env:
+          GETGO_RUN_ALPINE: "1"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: getgo-${{ github.sha }}
+          path: dist/*
+          if-no-files-found: error
