@@ -36,10 +36,14 @@ imposes, in priority order:
    the empty loader ~180 KB). Behavior: parse argv (package list) → ensure
    uv → `uv tool install <pkg>` per package → PATH wiring → forward exit
    code. This binary, published to GitHub Releases, is the deliverable.
-2. **`getgo` (PyPI, secondary)** — builder/release CLI. `getgo bake
-   --package <name> [-o out.com]` produces a white-label copy with the
-   package list pre-baked as a `/zip/getgo.json` entry for zero-arg
-   installers. CI packaging lives here too.
+2. **`getgo` (PyPI)** — the same public API as a normal Python package:
+   `pip install getgo` puts a `getgo` CLI on PATH implementing the identical
+   contract (`getgo <package>...` → ensure uv → `uv tool install` each).
+   The `.com` file serves machines with nothing installed; the PyPI package
+   serves machines that already have Python — two front doors, one API.
+   Also hosts the secondary builder surface (`getgo bake --package <name>
+   [-o out.com]` → white-label copy with the package list pre-baked as
+   `/zip/getgo.json`) and CI packaging.
 
 ## Loader runtime contract
 

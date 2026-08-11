@@ -22,6 +22,19 @@ iwr https://github.com/zackees/getgo/releases/latest/download/getgo -OutFile get
 soldr --version
 ```
 
+Already have Python tooling? getgo is also a normal PyPI package with the
+exact same CLI:
+
+```bash
+pip install getgo        # or: uv tool install getgo
+getgo soldr reld
+```
+
+getgo is a **universal package installer**: same one-line API whether it
+arrived as a curl'd file on a bare machine or via pip on a dev box. The
+`.com` download exists for machines with *nothing* on them; `pip install
+getgo` covers everywhere Python already is.
+
 ## The public API
 
 ```
@@ -43,6 +56,8 @@ designed backward from it:
   resolve the dir, saying so with the exact one-line fix before exiting.
 - **Exit code**: 0 iff every package installed. First failure is reported
   with uv's error attached.
+- **Distribution-independent**: the contract is identical from the curl'd
+  `.com` file and from `pip install getgo` — two front doors, one API.
 - Everything below this line — uv, APE, Cosmopolitan, ZIP config — is
   implementation detail and may change; this contract may not.
 
