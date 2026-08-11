@@ -1,0 +1,52 @@
+[build-system]
+requires = ["hatchling>=1.27,<2"]
+build-backend = "hatchling.build"
+
+[project]
+name = "getgo"
+version = "0.1.0"
+description = "Install any PyPI tool on any machine with one command"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "BSD-3-Clause"
+authors = [{ name = "Zachary Vorhies" }]
+keywords = ["installer", "pypi", "uv", "cli"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Environment :: Console",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Topic :: Software Development :: Build Tools",
+]
+dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/zackees/getgo"
+Issues = "https://github.com/zackees/getgo/issues"
+
+[project.scripts]
+getgo = "getgo.cli:main"
+
+[project.optional-dependencies]
+test = [
+  "build>=1.2.2,<2",
+  "pytest>=8.3,<9",
+  "ruff>=0.12,<1",
+]
+ape = ["clang-tool-chain==1.5.8"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/getgo"]
+
+[tool.pytest.ini_options]
+addopts = "-ra"
+markers = ["integration: tests that use Docker and the public network"]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
