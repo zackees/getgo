@@ -104,7 +104,14 @@ def _run_unix_installer(downloader: str, arguments: list[str]) -> int:
 
 def _bootstrap_uv() -> int:
     if os.name == "nt":
-        powershell = shutil.which("powershell")
+        powershell = shutil.which("powershell") or shutil.which("pwsh")
+        if not powershell:
+            candidates = []
+            if program_files := os.environ.get("PROGRAMFILES"):
+                candidates.append(Path(program_files) / "PowerShell" / "7" / "pwsh.exe")
+            if system_root := os.environ.get("SYSTEMROOT"):
+                candidates.append(Path(system_root) / "System32" / "WindowsPowerShell" / "v1.0" / "powershell.exe")
+            powershell = next((str(candidate) for candidate in candidates if candidate.is_file()), None)
         if not powershell:
             print("getgo: PowerShell is required to install uv", file=sys.stderr)
             return 1

@@ -38,6 +38,128 @@ class FakeUv:
         return [json.loads(line) for line in self.log.read_text(encoding="utf-8").splitlines()]
 
 
+@dataclass(frozen=True)
+class NativeWindowsHelpers:
+    uv: Path
+    installer: Path
+
+
+def _compile_csharp_executable(source: str, output: Path) -> None:
+    source_path = output.with_suffix(".cs")
+    source_path.write_text(source, encoding="utf-8", newline="\n")
+    powershell = shutil.which("powershell") or shutil.which("pwsh")
+    assert powershell, "PowerShell is required to compile native Windows test helpers"
+    environment = os.environ.copy()
+    environment["GETGO_CSHARP_SOURCE"] = str(source_path)
+    environment["GETGO_CSHARP_OUTPUT"] = str(output)
+    subprocess.run(
+        [
+            powershell,
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            "Add-Type -Path $env:GETGO_CSHARP_SOURCE -OutputAssembly $env:GETGO_CSHARP_OUTPUT "
+            "-OutputType ConsoleApplication",
+        ],
+        env=environment,
+        check=True,
+    )
+
+
+@pytest.fixture(scope="session")
+def native_windows_helpers(tmp_path_factory: pytest.TempPathFactory) -> NativeWindowsHelpers | None:
+    if os.name != "nt":
+        return None
+    root = tmp_path_factory.mktemp("native-windows-helpers")
+    uv = root / "fake-uv.exe"
+    installer = root / "fake-installer.exe"
+    _compile_csharp_executable(
+        r"""
+using System;
+using System.IO;
+using System.Text;
+
+public static class FakeUv {
+    private static int EnvInt(string name, int fallback) {
+        string value = Environment.GetEnvironmentVariable(name);
+        return String.IsNullOrEmpty(value) ? fallback : Int32.Parse(value);
+    }
+
+    private static string Quote(string value) {
+        return "\"" + value.Replace("\\", "\\\\").Replace("\"", "\\\"") + "\"";
+    }
+
+    private static void Log(string[] args) {
+        string path = Environment.GetEnvironmentVariable("GETGO_FAKE_UV_LOG");
+        string line = "[";
+        for (int i = 0; i < args.Length; ++i) {
+            if (i != 0) line += ",";
+            line += Quote(args[i]);
+        }
+        File.AppendAllText(path, line + "]\n", new UTF8Encoding(false));
+    }
+
+    public static int Main(string[] args) {
+        Log(args);
+        if (args.Length == 3 && args[0] == "tool" && args[1] == "install") {
+            string package = args[2];
+            if (package == Environment.GetEnvironmentVariable("GETGO_FAKE_FAIL_PACKAGE")) {
+                Console.Error.WriteLine("fake uv: could not install " + package);
+                return EnvInt("GETGO_FAKE_FAIL_EXIT", 17);
+            }
+            Console.WriteLine("installed " + package);
+            return 0;
+        }
+        if (args.Length == 3 && args[0] == "tool" && args[1] == "dir" && args[2] == "--bin") {
+            Console.WriteLine(Environment.GetEnvironmentVariable("GETGO_FAKE_TOOL_BIN"));
+            return EnvInt("GETGO_FAKE_DIR_EXIT", 0);
+        }
+        if (args.Length == 2 && args[0] == "tool" && args[1] == "update-shell") {
+            return EnvInt("GETGO_FAKE_UPDATE_EXIT", 0);
+        }
+        Console.Error.WriteLine("unexpected fake uv arguments");
+        return 99;
+    }
+}
+""",
+        uv,
+    )
+    _compile_csharp_executable(
+        r"""
+using System;
+using System.IO;
+using System.Text;
+
+public static class FakeInstaller {
+    private static string Quote(string value) {
+        return "\"" + value.Replace("\\", "\\\\").Replace("\"", "\\\"") + "\"";
+    }
+
+    public static int Main(string[] args) {
+        string line = "[";
+        for (int i = 0; i < args.Length; ++i) {
+            if (i != 0) line += ",";
+            line += Quote(args[i]);
+        }
+        File.AppendAllText(
+            Environment.GetEnvironmentVariable("GETGO_FAKE_TRANSPORT_LOG"),
+            line + "]\n",
+            new UTF8Encoding(false)
+        );
+        int exitCode = Int32.Parse(Environment.GetEnvironmentVariable("GETGO_FAKE_INSTALL_EXIT") ?? "0");
+        if (exitCode != 0) return exitCode;
+        string target = Path.Combine(Environment.GetEnvironmentVariable("USERPROFILE"), ".local", "bin");
+        Directory.CreateDirectory(target);
+        File.Copy(Environment.GetEnvironmentVariable("GETGO_FAKE_UV_SOURCE"), Path.Combine(target, "uv.exe"), true);
+        return 0;
+    }
+}
+""",
+        installer,
+    )
+    return NativeWindowsHelpers(uv=uv, installer=installer)
+
+
 def _entrypoint_params() -> list[str]:
     value = os.environ.get("GETGO_ENTRYPOINTS", "python")
     return [part.strip() for part in value.split(",") if part.strip()]
@@ -116,7 +238,7 @@ def _write_executable(path: Path, content: str) -> None:
 
 
 @pytest.fixture
-def fake_uv(tmp_path: Path) -> FakeUv:
+def fake_uv(tmp_path: Path, native_windows_helpers: NativeWindowsHelpers | None) -> FakeUv:
     fake_root = tmp_path / "fake"
     bin_dir = fake_root / "bin"
     tool_bin = fake_root / "tools"
@@ -126,9 +248,14 @@ def fake_uv(tmp_path: Path) -> FakeUv:
     tool_bin.mkdir()
     home.mkdir()
 
-    script = tmp_path / "fake_uv.py"
-    script.write_text(
-        """import json
+    if os.name == "nt":
+        assert native_windows_helpers is not None
+        executable = bin_dir / "uv.exe"
+        shutil.copyfile(native_windows_helpers.uv, executable)
+    else:
+        script = tmp_path / "fake_uv.py"
+        script.write_text(
+            """import json
 import os
 import signal
 import sys
@@ -154,14 +281,9 @@ if len(args) == 3 and args[:2] == ["tool", "install"]:
 print(f"unexpected fake uv arguments: {args!r}", file=sys.stderr)
 raise SystemExit(99)
 """,
-        encoding="utf-8",
-        newline="\n",
-    )
-
-    if os.name == "nt":
-        executable = bin_dir / "uv.cmd"
-        executable.write_text(f'@"{sys.executable}" "{script}" %*\r\n', encoding="utf-8")
-    else:
+            encoding="utf-8",
+            newline="\n",
+        )
         executable = bin_dir / "uv"
         _write_executable(executable, f"#!{sys.executable}\n" + script.read_text(encoding="utf-8"))
 
@@ -176,34 +298,17 @@ raise SystemExit(99)
 
 
 @pytest.fixture
-def fake_installer_factory(tmp_path: Path, fake_uv: FakeUv):
+def fake_installer_factory(tmp_path: Path, fake_uv: FakeUv, native_windows_helpers: NativeWindowsHelpers | None):
     def make(program: str, *, installer_exit: int = 0) -> tuple[Path, Path, dict[str, str]]:
         transport_dir = tmp_path / f"transport-{program}"
         transport_dir.mkdir()
         transport_log = tmp_path / f"{program}-calls.jsonl"
 
         if os.name == "nt":
-            assert program == "powershell"
-            helper = transport_dir / "fake_powershell.py"
-            helper.write_text(
-                """import json
-import os
-import shutil
-import sys
-from pathlib import Path
-
-with open(os.environ["GETGO_FAKE_TRANSPORT_LOG"], "a", encoding="utf-8") as stream:
-    stream.write(json.dumps(sys.argv[1:]) + "\\n")
-if int(os.environ.get("GETGO_FAKE_INSTALL_EXIT", "0")):
-    raise SystemExit(int(os.environ["GETGO_FAKE_INSTALL_EXIT"]))
-target = Path(os.environ["USERPROFILE"]) / ".local" / "bin"
-target.mkdir(parents=True, exist_ok=True)
-shutil.copyfile(os.environ["GETGO_FAKE_UV_SOURCE"], target / "uv.cmd")
-""",
-                encoding="utf-8",
-            )
-            executable = transport_dir / "powershell.cmd"
-            executable.write_text(f'@"{sys.executable}" "{helper}" %*\r\n', encoding="utf-8")
+            assert program in {"powershell", "pwsh"}
+            assert native_windows_helpers is not None
+            executable = transport_dir / f"{program}.exe"
+            shutil.copyfile(native_windows_helpers.installer, executable)
         else:
             assert program in {"curl", "wget"}
             executable = transport_dir / program

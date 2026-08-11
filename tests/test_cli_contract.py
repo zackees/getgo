@@ -149,10 +149,11 @@ def test_installer_failure_is_forwarded(entrypoint: EntryPoint, fake_uv: FakeUv,
 
 
 @pytest.mark.skipif(os.name != "nt", reason="Windows installer selection")
+@pytest.mark.parametrize("program", ["powershell", "pwsh"])
 def test_windows_bootstrap_uses_official_powershell_installer(
-    entrypoint: EntryPoint, fake_uv: FakeUv, fake_installer_factory
+    entrypoint: EntryPoint, fake_uv: FakeUv, fake_installer_factory, program: str
 ) -> None:
-    _, transport_log, env = fake_installer_factory("powershell")
+    _, transport_log, env = fake_installer_factory(program)
     result = run_getgo(entrypoint, ["ruff"], env)
     assert result.returncode == 0, result.stderr
     calls = [json.loads(line) for line in transport_log.read_text(encoding="utf-8").splitlines()]

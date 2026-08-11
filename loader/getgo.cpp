@@ -32,6 +32,9 @@ constexpr const char *kWindowsInstaller = "https://astral.sh/uv/install.ps1";
 bool IsWindowsHost() { return IsWindows(); }
 
 int DecodeStatus(int status) {
+  // Cosmopolitan's NT waitpid backend returns the native Windows process exit
+  // code directly rather than encoding it as a POSIX wait status.
+  if (IsWindowsHost()) return status;
   if (WIFEXITED(status)) return WEXITSTATUS(status);
   if (WIFSIGNALED(status)) return 128 + WTERMSIG(status);
   return 1;
@@ -180,13 +183,15 @@ std::string Join(const std::string &left, const std::string &right) {
 
 std::vector<std::string> ExecutableNames(const std::string &name) {
   if (!IsWindowsHost()) return {name};
-  return {name + ".exe", name + ".com", name + ".cmd", name + ".bat", name};
+  return {name + ".exe", name + ".com", name};
 }
 
 std::string FindOnPath(const std::string &name) {
   const char *path_value = std::getenv("PATH");
   if (!path_value) return {};
-  const char separator = IsWindowsHost() ? ';' : ':';
+  // Cosmopolitan normalizes a native Windows PATH such as C:\one;D:\two to
+  // its POSIX view (/C/one:/D/two) before exposing it through getenv().
+  const char separator = ':';
   std::string path(path_value);
   size_t start = 0;
   while (start <= path.size()) {
@@ -221,9 +226,27 @@ std::string FindUv() {
   return {};
 }
 
+std::string FindPowerShell() {
+  for (const char *name : {"powershell", "pwsh"}) {
+    std::string found = FindOnPath(name);
+    if (!found.empty()) return found;
+  }
+  const char *program_files = std::getenv("PROGRAMFILES");
+  if (program_files && *program_files) {
+    std::string candidate = Join(program_files, "PowerShell/7/pwsh.exe");
+    if (IsFile(candidate)) return AbsolutePath(candidate);
+  }
+  const char *system_root = std::getenv("SYSTEMROOT");
+  if (system_root && *system_root) {
+    std::string candidate = Join(system_root, "System32/WindowsPowerShell/v1.0/powershell.exe");
+    if (IsFile(candidate)) return AbsolutePath(candidate);
+  }
+  return {};
+}
+
 int BootstrapUv() {
   if (IsWindowsHost()) {
-    std::string powershell = FindOnPath("powershell");
+    std::string powershell = FindPowerShell();
     if (powershell.empty()) {
       std::fputs("getgo: PowerShell is required to install uv\n", stderr);
       return 1;
@@ -270,8 +293,15 @@ std::string NormalizePath(std::string value) {
   while (value.size() > 1 && (value.back() == '/' || value.back() == '\\')) value.pop_back();
   if (IsWindowsHost()) {
     for (char &c : value) {
-      if (c == '/') c = '\\';
+      if (c == '\\') c = '/';
       c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    }
+    // Treat Cosmopolitan's /C/foo view and Windows' C:\foo spelling as the
+    // same directory when checking whether uv's tool bin is already on PATH.
+    if (value.size() >= 2 && value[0] == '/' && std::isalpha(static_cast<unsigned char>(value[1])) &&
+        (value.size() == 2 || value[2] == '/')) {
+      value[0] = value[1];
+      value[1] = ':';
     }
   }
   return value;
@@ -280,7 +310,7 @@ std::string NormalizePath(std::string value) {
 bool PathContains(const std::string &directory) {
   const char *path_value = std::getenv("PATH");
   if (!path_value) return false;
-  const char separator = IsWindowsHost() ? ';' : ':';
+  const char separator = ':';
   std::string expected = NormalizePath(directory);
   std::string path(path_value);
   size_t start = 0;
