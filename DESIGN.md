@@ -1,20 +1,45 @@
 # getgo — design
 
 Ported and generalized from [soldr#2460](https://github.com/zackees/soldr/issues/2460)
-(2026-08-11). soldr is the first customer, not a dependency: getgo bakes a
-universal installer for **any** PyPI-distributed tool.
+(2026-08-11). soldr is the first customer, not a dependency.
+
+## Public API — the contract everything is designed around
+
+```
+curl <url> -o getgo && ./getgo <package> [<package>...] && <tool> --version
+```
+
+Owner directive (2026-08-11): this line **is** the product. Constraints it
+imposes, in priority order:
+
+1. **Every positional arg is a PyPI package name.** No verbs, no
+   subcommands. `getgo soldr reld` installs `soldr` and `reld`. Reserved
+   namespace: `--`-prefixed args only (`--help`, `--version`).
+2. **Immediately-chainable result**: after exit 0, each package's
+   executables must resolve in the same shell line (`soldr --version &&
+   red --version`). Mechanism: uv installs into `~/.local/bin`; PATH lookup
+   is per-command so new binaries there resolve mid-chain on any system
+   where that dir is already on PATH; getgo wires future shells silently
+   (`uv tool update-shell`) and prints the exact one-line fix when the
+   current shell can't resolve — never silently succeeds into a broken
+   chain.
+3. **One hosted generic file** at a stable URL (GitHub Releases
+   `latest/download/getgo`). No per-tool artifact required for the primary
+   flow.
+4. **Exit code**: 0 iff every named package installed; first failure
+   reported with uv's stderr attached.
 
 ## Product
 
-Two deliverables in this repo:
-
 1. **`loader/`** — a small C++ program (~150–400 lines) compiled with
    `cosmoc++` into a fat APE (x86_64 + aarch64 via `apelink`; `-mtiny` keeps
-   the empty loader ~180 KB). Behavior: read baked config → ensure uv →
-   `uv tool install <package>` → forward exit code.
-2. **`getgo` (PyPI)** — the builder CLI. `getgo bake --package <name>
-   [--uv-version <pin>] [-o out.com]` compiles the loader (or reuses a
-   prebuilt one shipped in the wheel), then appends the config as a ZIP entry.
+   the empty loader ~180 KB). Behavior: parse argv (package list) → ensure
+   uv → `uv tool install <pkg>` per package → PATH wiring → forward exit
+   code. This binary, published to GitHub Releases, is the deliverable.
+2. **`getgo` (PyPI, secondary)** — builder/release CLI. `getgo bake
+   --package <name> [-o out.com]` produces a white-label copy with the
+   package list pre-baked as a `/zip/getgo.json` entry for zero-arg
+   installers. CI packaging lives here too.
 
 ## Loader runtime contract
 
@@ -25,11 +50,13 @@ Grounded in the APE/Cosmopolitan research (sources at bottom):
   the ~10 KB embedded loader to `$TMPDIR/ape` (fallback `/tmp/ape`) and
   re-execs. On macOS ARM the loader is compiled from embedded source with the
   local `cc` (first run needs Xcode CLT) or found at `/usr/local/bin/ape`.
-- **Config access**: Cosmopolitan libc resolves its own executable path
-  (`GetProgramExecutableName`), parses its own ZIP central directory, and
-  exposes entries under `/zip/…` with transparent deflate-on-read. getgo
-  stores exactly one entry: `/zip/getgo.json` (package name, optional uv
-  pin, verbosity defaults).
+- **Package selection**: argv is primary (public API). The optional baked
+  config is read only when present: Cosmopolitan libc resolves its own
+  executable path (`GetProgramExecutableName`), parses its own ZIP central
+  directory, and exposes entries under `/zip/…` with transparent
+  deflate-on-read — getgo stores at most one entry, `/zip/getgo.json`
+  (default package list, optional uv pin). argv packages append to baked
+  ones.
 - **No exec from `/zip/`**: direct exec of ZIP members is compiled out in
   Cosmopolitan (`libc/proc/execve.c`, the zipos branch is `if (0 && …)`).
   Irrelevant to getgo's config-only use, but it is the reason the fat-binary
@@ -74,10 +101,12 @@ The merge bar is an Alpine (musl x86_64) Docker container, chosen because it
 is the least forgiving substrate: busybox sh, no glibc, no preinstalled uv or
 Python.
 
-- **RED**: pytest that bakes an installer for a tiny known package inside the
-  container, runs the `.com` via `/bin/sh`, and asserts (a) uv gets
-  installed, (b) the tool is runnable afterward, (c) exit codes and argv
-  forward intact, (d) a second run skips the uv install (idempotence).
+- **RED**: pytest that runs the generic `getgo` binary via `/bin/sh` inside
+  the container against **two** tiny known packages (the public-API shape:
+  `./getgo <a> <b> && <a> --version && <b> --version` as one shell line)
+  and asserts (a) uv gets installed, (b) both tools chain immediately,
+  (c) exit code 0, and non-zero when a bogus package is included,
+  (d) a second run skips the uv install (idempotence).
   **GREEN**: loader + builder implementation, no test edits beyond imports.
 - Unit tests (no container, no network): config ZIP append + re-read offsets,
   uv-presence detection, per-OS installer-command selection, argv mapping.
