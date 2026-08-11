@@ -3,7 +3,8 @@
 **Install any PyPI tools on any machine with one downloaded file.**
 
 ```bash
-curl -LsSf https://github.com/zackees/getgo/releases/latest/download/getgo -o getgo \
+export PATH="$HOME/.local/bin:$PATH" \
+  && curl -LsSf https://github.com/zackees/getgo/releases/latest/download/getgo -o getgo \
   && chmod +x getgo \
   && ./getgo soldr reld \
   && soldr --version \
@@ -17,6 +18,7 @@ unchanged.
 Windows (same file, it's a real PE):
 
 ```powershell
+$env:Path = "$HOME\.local\bin;$env:Path"
 iwr https://github.com/zackees/getgo/releases/latest/download/getgo -OutFile getgo.com
 .\getgo.com soldr reld
 soldr --version
@@ -47,13 +49,13 @@ designed backward from it:
 - **Every argument is a PyPI package name.** No subcommands, no verbs, no
   flag ceremony. `getgo soldr reld` installs `soldr` and `reld`. (Only
   `--`-prefixed args are reserved: `--help`, `--version`.)
-- **Each package's executables are runnable immediately after exit 0** —
-  `soldr --version && red --version` chains in the same shell line. getgo
-  guarantees this by installing through uv into `~/.local/bin` (on `PATH`
-  on modern systems — and PATH lookup is per-command, so binaries that
-  appear mid-chain resolve without a new shell), silently wiring future
-  shells via uv's shell setup, and, when the current shell genuinely can't
-  resolve the dir, saying so with the exact one-line fix before exiting.
+- **Each package's executables are immediately chainable when uv's tool bin
+  directory is already on `PATH`.** The quick starts above predeclare the
+  default `~/.local/bin` location, so `soldr --version && red --version`
+  resolves in the same shell line. getgo also asks uv to wire future shells.
+  If a custom or inherited environment does not contain the directory,
+  getgo prints the exact `export` or `$env:Path` command to run in the current
+  shell; a child process cannot modify its parent shell.
 - **Exit code**: 0 iff every package installed. First failure is reported
   with uv's error attached.
 - **Distribution-independent**: the contract is identical from the curl'd
@@ -153,12 +155,37 @@ files are valid ZIP archives; Cosmopolitan exposes entries under `/zip/…`).
 Same loader, zero-argument UX for your users. Secondary surface — the hosted
 generic binary is the product.
 
-## Repository layout (planned)
+## Repository layout
 
 - `loader/` — the C++ APE loader (`cosmoc++`, `-mtiny`, fat x86_64+aarch64)
-- `src/getgo/` — the Python builder/release CLI (`getgo bake`, CI packaging)
-- `tests/` — unit tests (argv mapping, uv detection, installer-command
-  selection) plus the Alpine-musl Docker gate that is this repo's merge bar
+- `src/getgo/` — the Python implementation distributed through PyPI
+- `scripts/` — reproducible APE build and architecture validation
+- `tests/` — the shared black-box contract plus the Alpine-musl merge gate
+
+## Development
+
+[uv](https://docs.astral.sh/uv/) is the only development prerequisite.
+
+```bash
+uv sync --locked --extra test --extra ape
+uv run ruff check .
+uv run pytest -q tests/test_cli_contract.py
+uv run python scripts/build_ape.py
+GETGO_ENTRYPOINTS=python,ape uv run pytest -q tests/test_cli_contract.py
+GETGO_RUN_ALPINE=1 uv run pytest -q tests/test_alpine.py
+uv build
+```
+
+The APE build pins `clang-tool-chain==1.5.8` in `pyproject.toml` and
+`uv.lock`. It writes toolchain and architecture metadata into the APE's ZIP
+directory and validates both the AMD64 PE and embedded AArch64 ELF before
+release. See [`docs/RED_GREEN.md`](docs/RED_GREEN.md) for the preserved
+test-first evidence.
+
+Package arguments must be valid PyPI distribution names: ASCII letters,
+digits, `.`, `_`, and `-`, beginning and ending with a letter or digit. They
+are always passed to uv as individual process arguments and are never shell
+evaluated.
 
 ## Background: Cosmopolitan, APE, and the toolchain
 
@@ -187,9 +214,6 @@ See [DESIGN.md](DESIGN.md) for the full loader contract, platform caveats,
 decisions, and test strategy. Design lineage:
 [soldr#2460](https://github.com/zackees/soldr/issues/2460).
 
-## Status
+## License
 
-Design phase. Implementation tracked in
-[issue #1](https://github.com/zackees/getgo/issues/1). The
-[`getgo`](https://pypi.org/project/getgo/) name on PyPI is reserved
-(placeholder release).
+BSD-3-Clause. See [LICENSE](LICENSE).

@@ -1,0 +1,84 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          enable-cache: true
+      - run: uv sync --locked --extra test --extra ape
+      - name: Verify tag matches package version
+        shell: bash
+        run: |
+          version="$(uv run python -c 'import getgo; print(getgo.__version__)')"
+          test "$GITHUB_REF_NAME" = "v$version"
+      - name: Build release artifacts
+        run: |
+          uv run python scripts/build_ape.py
+          uv run python scripts/check_ape.py
+          uv build
+      - name: Test release artifacts
+        run: |
+          GETGO_ENTRYPOINTS=python,ape uv run pytest -q tests/test_cli_contract.py
+          GETGO_TEST_BUILT_DISTS=1 uv run pytest -q tests/test_artifacts.py
+          uv venv "$RUNNER_TEMP/getgo-wheel"
+          uv pip install --python "$RUNNER_TEMP/getgo-wheel/bin/python" dist/*.whl
+          GETGO_ENTRYPOINTS=installed \
+          GETGO_INSTALLED_COMMAND="$RUNNER_TEMP/getgo-wheel/bin/getgo" \
+            uv run pytest -q tests/test_cli_contract.py
+          GETGO_RUN_ALPINE=1 uv run pytest -q tests/test_alpine.py
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-artifacts-${{ github.sha }}
+          path: dist/*
+          if-no-files-found: error
+
+  publish-pypi:
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-artifacts-${{ github.sha }}
+          path: dist
+      - name: Stage Python distributions
+        run: |
+          mkdir python-dist
+          cp dist/*.whl dist/*.tar.gz python-dist/
+      - name: Publish to PyPI with trusted publishing
+        uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
+        with:
+          packages-dir: python-dist/
+
+  publish-github:
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-artifacts-${{ github.sha }}
+          path: dist
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@3d0d9888cb7fd7b750713d6e236d1fcb99157228 # v3.0.2
+        with:
+          generate_release_notes: true
+          files: |
+            dist/getgo
+            dist/*.whl
+            dist/*.tar.gz
