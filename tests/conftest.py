@@ -339,7 +339,7 @@ def fake_installer_factory(tmp_path: Path, fake_uv: FakeUv, native_windows_helpe
                 if installer_exit
                 else "\n".join(
                     (
-                        '/bin/printf "%s" "$UV_NO_MODIFY_PATH" > "$GETGO_FAKE_INSTALL_ENV_LOG"',
+                        'printf "%s" "$UV_NO_MODIFY_PATH" > "$GETGO_FAKE_INSTALL_ENV_LOG"',
                         '/bin/mkdir -p "$HOME/.local/bin"',
                         '/bin/cp "$GETGO_FAKE_UV_SOURCE" "$HOME/.local/bin/uv"',
                         '/bin/chmod +x "$HOME/.local/bin/uv"',
