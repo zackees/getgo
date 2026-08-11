@@ -34,8 +34,9 @@ imposes, in priority order:
 1. **`loader/`** — a small C++ program (~150–400 lines) compiled with
    `cosmoc++` into a fat APE (x86_64 + aarch64 via `apelink`; `-mtiny` keeps
    the empty loader ~180 KB). Behavior: parse argv (package list) → ensure
-   uv → `uv tool install --managed-python <pkg>` per package → PATH wiring →
-   forward exit code. This binary, published to GitHub Releases, is the deliverable.
+   uv → `uv tool install --managed-python <pkg>@latest` per package → PATH
+   wiring → forward exit code. This binary, published to GitHub Releases, is
+   the deliverable.
 2. **`getgo` (PyPI)** — the same public API as a normal Python package:
    `pip install getgo` puts a `getgo` CLI on PATH implementing the identical
    contract (`getgo <package>...` → ensure uv → managed `uv tool install` each).
@@ -74,12 +75,14 @@ Grounded in the APE/Cosmopolitan research (sources at bottom):
   `wget -qO- … | sh` (busybox wget suffices on Alpine); Windows:
   `powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"`.
   No TLS/HTTP client is linked into the loader.
-- **Delegation**: `uv tool install --managed-python <package>`. Chosen over
-  `uv pip install --system`, which requires a pre-existing system Python and
-  fights PEP 668 externally-managed distros. `--managed-python` forbids the
-  system-interpreter fallback, downloads a compatible uv-managed Python when
-  needed, installs into a persistent isolated environment, and links the
-  executable into uv's XDG/user executable directory.
+- **Delegation**: `uv tool install --managed-python <package>@latest`. Chosen
+  over `uv pip install --system`, which requires a pre-existing system Python
+  and fights PEP 668 externally-managed distros. `--managed-python` forbids
+  the system-interpreter fallback, while `@latest` gives first install,
+  upgrade, and accidental repeat one idempotent request. uv downloads a
+  compatible managed Python when needed, installs into a persistent isolated
+  environment, and links the executable into its XDG/user executable
+  directory. Uninstall remains uv's native `uv tool uninstall <package>`.
 - **Spawn semantics**: spawn + wait + forward exit code everywhere
   (Cosmopolitan's `execve` on Windows spawns a child rather than replacing
   the process, so spawn/wait is the one portable shape).
@@ -109,13 +112,14 @@ The merge bar is an Alpine (musl x86_64) Docker container, chosen because it
 is the least forgiving substrate: busybox sh, no glibc, no preinstalled uv or
 Python.
 
-- **RED**: pytest that runs the generic `getgo` binary via `/bin/sh` inside
-  the container against **two** tiny known packages (the public-API shape:
-  `./getgo <a> <b> && <a> --version && <b> --version` as one shell line)
-  and asserts (a) uv gets installed, (b) both tools chain immediately,
-  (c) exit code 0, and non-zero when a bogus package is included,
-  (d) a second run skips the uv install (idempotence).
-  **GREEN**: loader + builder implementation, no test edits beyond imports.
+- **Lifecycle gate**: pytest runs the generic `getgo` APE via `/bin/sh` and
+  installs Ruff in the container. It asserts that uv and a managed Python are
+  bootstrapped without consulting a discoverable system-Python decoy, Ruff's
+  launcher and environment use uv's user directories, an old pinned Ruff is
+  upgraded back to the exact initially observed latest release, an accidental
+  duplicate succeeds without re-bootstrapping uv, the first failed package
+  stops the chain with its exact exit code, and `uv tool uninstall ruff`
+  removes only Ruff while retaining uv and the managed interpreter.
 - Unit tests (no container, no network): config ZIP append + re-read offsets,
   uv-presence detection, per-OS installer-command selection, argv mapping.
 - Windows / macOS smoke rides CI runners later; musl is the standing gate.
@@ -143,9 +147,10 @@ Python.
 - **Config-only ZIP use** — payloads stay on PyPI. This is the core design
   bet: uv is the universal installer; getgo is only the universal *first
   step*.
-- **`uv tool install --managed-python`** over `uv pip install --system`
-  (one persistent per-user tool path, isolated environments, no system-Python
-  dependency, and no PEP 668 conflict).
+- **`uv tool install --managed-python <package>@latest`** over
+  `uv pip install --system` (one persistent per-user tool path, isolated
+  environments, repeatable upgrades, no system-Python dependency, and no
+  PEP 668 conflict).
 - **Official uv install scripts over vendored downloads**: the scripts do
   their own platform/arch/libc detection; pinning is offered via config
   (`UV_INSTALLER_VERSION`-style env or versioned script URL) not vendoring.

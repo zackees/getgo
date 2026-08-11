@@ -47,9 +47,9 @@ def test_installs_each_package_once_in_order_with_managed_python(entrypoint: Ent
     result = run_getgo(entrypoint, ["ruff", "pycowsay", "my_tool.pkg"], env)
     assert result.returncode == 0, result.stderr
     assert fake_uv.calls() == [
-        ["tool", "install", "--managed-python", "ruff"],
-        ["tool", "install", "--managed-python", "pycowsay"],
-        ["tool", "install", "--managed-python", "my_tool.pkg"],
+        ["tool", "install", "--managed-python", "ruff@latest"],
+        ["tool", "install", "--managed-python", "pycowsay@latest"],
+        ["tool", "install", "--managed-python", "my_tool.pkg@latest"],
         ["tool", "dir", "--bin"],
         ["tool", "update-shell"],
     ]
@@ -60,7 +60,7 @@ def test_first_failure_is_forwarded_and_stops(entrypoint: EntryPoint, fake_uv: F
     result = run_getgo(entrypoint, ["broken", "must-not-run"], env)
     assert result.returncode == 23
     assert "fake uv: could not install broken" in result.stderr
-    assert fake_uv.calls() == [["tool", "install", "--managed-python", "broken"]]
+    assert fake_uv.calls() == [["tool", "install", "--managed-python", "broken@latest"]]
 
 
 @pytest.mark.skipif(os.name == "nt", reason="POSIX signal exit semantics")
@@ -68,7 +68,7 @@ def test_signal_termination_is_normalized(entrypoint: EntryPoint, fake_uv: FakeU
     env = fake_uv.env | {"GETGO_FAKE_SIGNAL_PACKAGE": "signaled"}
     result = run_getgo(entrypoint, ["signaled", "must-not-run"], env)
     assert result.returncode == 128 + signal.SIGTERM
-    assert fake_uv.calls() == [["tool", "install", "--managed-python", "signaled"]]
+    assert fake_uv.calls() == [["tool", "install", "--managed-python", "signaled@latest"]]
 
 
 def test_existing_uv_in_default_user_location_skips_bootstrap(
@@ -83,7 +83,7 @@ def test_existing_uv_in_default_user_location_skips_bootstrap(
     env = fake_uv.env | {"PATH": ""}
     result = run_getgo(entrypoint, ["ruff"], env)
     assert result.returncode == 0, result.stderr
-    assert fake_uv.calls()[:1] == [["tool", "install", "--managed-python", "ruff"]]
+    assert fake_uv.calls()[:1] == [["tool", "install", "--managed-python", "ruff@latest"]]
 
 
 @pytest.mark.skipif(os.name == "nt", reason="POSIX executable permissions")
@@ -93,7 +93,7 @@ def test_directory_named_uv_does_not_shadow_executable(entrypoint: EntryPoint, f
     env = fake_uv.env | {"PATH": os.pathsep.join((str(decoy_bin), str(fake_uv.bin_dir), str(fake_uv.tool_bin)))}
     result = run_getgo(entrypoint, ["ruff"], env)
     assert result.returncode == 0, result.stderr
-    assert fake_uv.calls()[0] == ["tool", "install", "--managed-python", "ruff"]
+    assert fake_uv.calls()[0] == ["tool", "install", "--managed-python", "ruff@latest"]
 
 
 def test_update_shell_failure_cannot_fail_successful_installs(entrypoint: EntryPoint, fake_uv: FakeUv) -> None:
@@ -137,7 +137,7 @@ def test_unix_bootstrap_uses_official_installer(
     assert result.returncode == 0, result.stderr
     calls = [json.loads(line) for line in transport_log.read_text(encoding="utf-8").splitlines()]
     assert calls == [expected_args]
-    assert fake_uv.calls()[0] == ["tool", "install", "--managed-python", "ruff"]
+    assert fake_uv.calls()[0] == ["tool", "install", "--managed-python", "ruff@latest"]
 
 
 @pytest.mark.skipif(os.name == "nt", reason="Unix installer selection")

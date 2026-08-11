@@ -39,7 +39,7 @@ Already have Python tooling? getgo is also a normal PyPI package with the
 exact same CLI:
 
 ```bash
-pip install getgo        # or: uv tool install --managed-python getgo
+pip install getgo        # or: uv tool install --managed-python getgo@latest
 getgo ruff
 ```
 
@@ -47,6 +47,22 @@ getgo is a **universal package installer**: same one-line API whether it
 arrived as a curl'd file on a bare machine or via pip on a dev box. The
 `.com` download exists for machines with *nothing* on them; `pip install
 getgo` covers everywhere Python already is.
+
+## Tool lifecycle
+
+`getgo <package>` always means “make the latest release available as a
+persistent per-user tool.” The same command handles first installation,
+upgrades, and accidental repeats:
+
+| Scenario | Command | Result |
+|---|---|---|
+| First install | `getgo ruff` | Installs the latest Ruff in an isolated uv environment. |
+| Upgrade | `getgo ruff` | Refreshes the request and replaces an older Ruff with the latest release. |
+| Already current | `getgo ruff` | Succeeds safely and leaves the current latest release installed. |
+| Uninstall | `uv tool uninstall ruff` | Removes Ruff's launcher and environment; shared uv and managed Python remain. |
+
+getgo intentionally stays install-only; after its first run, the bootstrapped
+`uv` owns inspection (`uv tool list`) and removal (`uv tool uninstall`).
 
 ## The public API
 
@@ -60,7 +76,8 @@ designed backward from it:
 - **Every argument is a PyPI package name.** No subcommands, no verbs, no
   flag ceremony. `getgo ruff` installs `ruff`. (Only
   `--`-prefixed args are reserved: `--help`, `--version`.)
-- **Every install follows one path:** `uv tool install --managed-python`.
+- **Every install follows one path:**
+  `uv tool install --managed-python <package>@latest`.
   Each package gets a persistent, isolated per-user environment backed only
   by uv-managed Python; target tools are never installed into or based on
   system Python.
@@ -95,9 +112,9 @@ Three stages, each owned by the layer best at it:
  stage 0                    stage 1                     stage 2
  ┌─────────────────┐        ┌──────────────────┐        ┌──────────────────────┐
  │ getgo           │        │ ensure uv        │        │ uv tool install      │
- │ (APE loader,    │ ─────► │ (official        │ ─────► │ --managed-python pkg │
- │  ~200 KB, fat   │        │  installer, or   │        │ (isolated env +      │
- │  x86_64+arm64)  │        │  already there)  │        │  PATH launcher)      │
+ │ (APE loader,    │ ─────► │ (official        │ ─────► │ --managed-python     │
+ │  ~200 KB, fat   │        │  installer, or   │        │ package@latest       │
+ │  x86_64+arm64)  │        │  already there)  │        │ (isolated + PATH)    │
  └─────────────────┘        └──────────────────┘        └──────────────────────┘
 ```
 
@@ -142,10 +159,11 @@ path.
 
 ### Stage 2 — delegation to uv
 
-The loader spawns `uv tool install --managed-python <package>`, waits, and
-forwards the exit code (spawn/wait is the one shape that behaves identically
-everywhere — Cosmopolitan's `execve` on Windows spawns rather than replaces).
-The flag forbids uv from selecting a system interpreter. uv then:
+The loader spawns `uv tool install --managed-python <package>@latest`, waits,
+and forwards the exit code (spawn/wait is the one shape that behaves
+identically everywhere — Cosmopolitan's `execve` on Windows spawns rather
+than replaces). The flag forbids uv from selecting a system interpreter, and
+`@latest` makes first install, upgrade, and repeat use one request. uv then:
 
 - resolves the right wheel for the host (`win_amd64`, `macosx_*`,
   `manylinux_*_{x86_64,aarch64}`, `musllinux_*_{x86_64,aarch64}`),

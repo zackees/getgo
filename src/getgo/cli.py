@@ -213,7 +213,7 @@ def run(args: Sequence[str]) -> int:
         return result
 
     for package in packages:
-        completed = _run_uv(uv, ["tool", "install", "--managed-python", package])
+        completed = _run_uv(uv, ["tool", "install", "--managed-python", f"{package}@latest"])
         if completed is None:
             return 1
         if completed.returncode:

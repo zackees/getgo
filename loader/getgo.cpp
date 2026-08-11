@@ -369,7 +369,7 @@ int ProgramMain(int argc, char **argv) {
   }
 
   for (int i = 1; i < argc; ++i) {
-    int code = Spawn({uv, "tool", "install", "--managed-python", argv[i]});
+    int code = Spawn({uv, "tool", "install", "--managed-python", std::string(argv[i]) + "@latest"});
     if (code) return code;
   }
   FinishPathSetup(uv);

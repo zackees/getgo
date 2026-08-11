@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 @pytest.mark.integration
-def test_stock_alpine_without_python_bootstraps_managed_python_and_installs_ruff() -> None:
+def test_stock_alpine_managed_tool_lifecycle() -> None:
     if os.environ.get("GETGO_RUN_ALPINE") != "1":
         pytest.skip("set GETGO_RUN_ALPINE=1 to run the networked Docker gate")
     artifact = ROOT / "dist" / "getgo"
@@ -41,7 +41,8 @@ chmod +x /tmp/getgo
 # A real package install must bootstrap uv and a user-managed Python.
 /bin/sh /tmp/getgo ruff
 test ! -e /tmp/system-python-calls
-ruff --version | grep -F "ruff "
+latest_version="$(ruff --version)"
+printf '%s\n' "$latest_version" | grep -F "ruff "
 test -x "$HOME/.local/bin/uv"
 test ! -e /usr/bin/python
 test ! -e /usr/bin/python3
@@ -64,9 +65,17 @@ case "$tool_base_prefix" in
   *) echo "Ruff does not use uv's managed Python: $tool_base_prefix" >&2; exit 1 ;;
 esac
 "$HOME/.local/bin/uv" tool list | grep -F "ruff "
+real_uv="$HOME/.local/bin/uv"
+
+# Re-running getgo upgrades an older installation to the latest release.
+"$real_uv" tool install --managed-python ruff==0.11.0
+test "$(ruff --version)" = "ruff 0.11.0"
+/bin/sh /tmp/getgo ruff
+upgraded_version="$(ruff --version)"
+test "$upgraded_version" = "$latest_version"
+test ! -e /tmp/system-python-calls
 
 # A failed package must stop the chain and preserve uv's exit status.
-real_uv="$HOME/.local/bin/uv"
 mkdir -p /tmp/shim
 cat > /tmp/shim/uv <<EOF
 #!/bin/sh
@@ -80,9 +89,9 @@ failure_code=$?
 set -e
 test "$failure_code" -eq 37
 test "$(wc -l < /tmp/uv-calls)" -eq 1
-grep -Fx "tool install --managed-python getgo-package-that-does-not-exist-1" /tmp/uv-calls
+grep -Fx "tool install --managed-python getgo-package-that-does-not-exist-1@latest" /tmp/uv-calls
 
-# A subsequent install must reuse uv instead of running the bootstrap again.
+# An accidental duplicate install is successful and keeps the same version.
 cat > /tmp/shim/wget <<'EOF'
 #!/bin/sh
 echo invoked > /tmp/wget-was-invoked
@@ -92,6 +101,20 @@ chmod +x /tmp/shim/wget
 PATH="$HOME/.local/bin:/tmp/shim:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" \
   /bin/sh /tmp/getgo ruff
 test ! -e /tmp/wget-was-invoked
+test "$(ruff --version)" = "$upgraded_version"
+
+# Uninstall removes only Ruff's launcher and isolated tool environment.
+tool_dir="$("$real_uv" tool dir)"
+"$real_uv" tool uninstall ruff
+test ! -e "$tool_bin/ruff"
+test ! -e "$tool_dir/ruff"
+test -x "$real_uv"
+test -d "$python_dir"
+test -x "$managed_python"
+if "$real_uv" tool list | grep -F "ruff "; then
+  echo "Ruff remains listed after uninstall" >&2
+  exit 1
+fi
 """
     result = subprocess.run(
         [
