@@ -26,12 +26,13 @@ directory used by uv.
 
 That's the whole installation. The same downloaded file runs natively on
 Windows, macOS (Intel + Apple Silicon), and Linux (glibc + musl, x86_64 +
-aarch64), unchanged. Install tools from any terminal with:
+aarch64), unchanged. For example, install
+[Ruff](https://pypi.org/project/ruff/), the popular Python linter and formatter,
+from any terminal with:
 
 ```console
-getgo soldr reld
-soldr --version
-red --version
+getgo ruff
+ruff --version
 ```
 
 Already have Python tooling? getgo is also a normal PyPI package with the
@@ -39,7 +40,7 @@ exact same CLI:
 
 ```bash
 pip install getgo        # or: uv tool install getgo
-getgo soldr reld
+getgo ruff
 ```
 
 getgo is a **universal package installer**: same one-line API whether it
@@ -57,11 +58,11 @@ That line is the entire contract, and everything else in this project is
 designed backward from it:
 
 - **Every argument is a PyPI package name.** No subcommands, no verbs, no
-  flag ceremony. `getgo soldr reld` installs `soldr` and `reld`. (Only
+  flag ceremony. `getgo ruff` installs `ruff`. (Only
   `--`-prefixed args are reserved: `--help`, `--version`.)
 - **Each package's executables are immediately chainable when uv's tool bin
   directory is already on `PATH`.** The quick starts above predeclare the
-  default `~/.local/bin` location, so `soldr --version && red --version`
+  default `~/.local/bin` location, so `getgo ruff && ruff --version`
   resolves in the same shell line. getgo also asks uv to wire future shells.
   If a custom or inherited environment does not contain the directory,
   getgo prints the exact `export` or `$env:Path` command to run in the current
@@ -159,7 +160,7 @@ getgo can't conjure a wheel that doesn't exist.
 
 ## White-label installers (optional, later)
 
-`uvx getgo bake --package soldr -o soldr-setup.com` produces a renamed copy
+`uvx getgo bake --package ruff -o ruff-setup.com` produces a renamed copy
 with the package name pre-baked as a `/zip/getgo.json` config entry (APE
 files are valid ZIP archives; Cosmopolitan exposes entries under `/zip/…`).
 Same loader, zero-argument UX for your users. Secondary surface — the hosted
