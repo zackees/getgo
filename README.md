@@ -56,8 +56,49 @@ The loader is a few hundred lines of C++ compiled with `cosmoc++` from the
 `lichen bake` is pure Python orchestration — portable, unit-testable, and free
 of host-toolchain requirements.
 
-See [DESIGN.md](DESIGN.md) for the full design, platform caveats, and test
-strategy. Design lineage: [soldr#2460](https://github.com/zackees/soldr/issues/2460).
+## Background: Cosmopolitan, APE, and the toolchain
+
+Primer for implementers — everything lichen builds on:
+
+- **[Cosmopolitan Libc](https://github.com/jart/cosmopolitan)** is a C library
+  that makes C/C++ "build-once run-anywhere": one compiled artifact runs
+  natively on Linux, Windows, macOS, and the BSDs, on both x86_64 and aarch64.
+- **APE (Actually Portable Executable)** is its output format — a polyglot
+  file whose first bytes are simultaneously a valid Windows PE (`MZ`), a POSIX
+  `#!/bin/sh` script, and a carrier for embedded ELF/Mach-O program images.
+  Windows executes it directly; Unix shells bootstrap it through a ~10 KB
+  `ape` loader (self-extracted to `$TMPDIR/ape` when not installed); macOS ARM
+  compiles that loader locally on first use. `--assimilate` converts a copy
+  in-place to a plain native binary.
+- **Every APE is also a valid ZIP archive.** Files zipped onto the end of the
+  executable appear at runtime under the synthetic `/zip/…` path via normal
+  `open()`/`read()` (transparent deflate). Lichen uses this for one small
+  config entry — never for payload binaries (Cosmopolitan cannot `exec()`
+  directly from `/zip/`, and lichen doesn't need to).
+- **cosmocc / cosmoc++** is the GCC+Clang-based cross toolchain that emits
+  APE binaries (`bin/cosmoc++ -o hello hello.cpp` → runs everywhere;
+  `-mtiny` for ~180 KB output). Normally downloaded from
+  [cosmo.zip](https://cosmo.zip/pub/cosmocc/); lichen instead consumes it via
+  the [clang-tool-chain](https://pypi.org/project/clang-tool-chain/) PyPI
+  package, which bundles cosmocc 4.0.2 with `clang-tool-chain-cosmocc` /
+  `clang-tool-chain-cosmocpp` entry points — so the whole build runs under
+  `uv` with zero host-toolchain setup:
+
+  ```bash
+  uv run --with clang-tool-chain clang-tool-chain-cosmocpp loader/loader.cpp -o lichen-loader.com
+  ```
+
+- **[uv](https://github.com/astral-sh/uv)** is the other symbiont: a single
+  static binary (glibc, musl, mac universal, Windows builds all published)
+  that resolves wheels, provisions managed CPython when the host has none,
+  and manages tool installs (`uv tool install`) and PATH shims. Prior art for
+  the extract-and-delegate pattern:
+  [llamafile](https://github.com/mozilla-ai/llamafile), which extracts
+  `/zip/` assets to `~/.llamafile/v/<version>/`.
+
+See [DESIGN.md](DESIGN.md) for the full loader runtime contract, builder
+pipeline, platform caveats, decisions, and test strategy. Design lineage:
+[soldr#2460](https://github.com/zackees/soldr/issues/2460).
 
 ## Status
 
