@@ -5,24 +5,45 @@
 ## Install
 
 Install `getgo` once for the current user—no administrator privileges needed.
-Each command puts it in the standard user-local executable directory and makes
-that directory available both now and in future login shells.
+Each command puts it in `~/.local/bin`, makes it available in the current
+shell, and persists that user-local directory for future shells.
 
 ### Linux and macOS
 
 ```bash
-bin="$HOME/.local/bin"; case "${SHELL##*/}:$(uname -s)" in zsh:*) profile="$HOME/.zprofile" ;; bash:Darwin) profile="$HOME/.bash_profile" ;; *) profile="$HOME/.profile" ;; esac; mkdir -p "$bin" && curl -LsSf https://github.com/zackees/getgo/releases/latest/download/getgo -o "$bin/getgo" && chmod +x "$bin/getgo" && { grep -Fqx 'export PATH="$HOME/.local/bin:$PATH"' "$profile" 2>/dev/null || printf '\nexport PATH="$HOME/.local/bin:$PATH"\n' >> "$profile"; } && export PATH="$bin:$PATH" && getgo --version
+bin="$HOME/.local/bin"; line='case ":$PATH:" in *:"$HOME/.local/bin":*) ;; *) export PATH="$HOME/.local/bin:$PATH" ;; esac'; mkdir -p "$bin" && curl -LsSf https://github.com/zackees/getgo/releases/latest/download/getgo -o "$bin/getgo" && chmod +x "$bin/getgo" && for profile in "$HOME/.profile" "$HOME/.bashrc" "$HOME/.zshenv"; do grep -Fqx "$line" "$profile" 2>/dev/null || printf '\n%s\n' "$line" >> "$profile"; done && case ":$PATH:" in *:"$bin":*) ;; *) export PATH="$bin:$PATH" ;; esac && getgo --version
 ```
 
-### Windows PowerShell
+For fish, use its native universal-path command after the download:
+
+```fish
+set bin "$HOME/.local/bin"; mkdir -p "$bin"; curl -LsSf https://github.com/zackees/getgo/releases/latest/download/getgo -o "$bin/getgo"; chmod +x "$bin/getgo"; fish_add_path --global "$bin"; getgo --version
+```
+
+### Windows
+
+PowerShell:
 
 ```powershell
-$bin = Join-Path $HOME '.local\bin'; New-Item -ItemType Directory -Force -Path $bin | Out-Null; Invoke-WebRequest https://github.com/zackees/getgo/releases/latest/download/getgo -OutFile (Join-Path $bin 'getgo.com'); $userPath = @([Environment]::GetEnvironmentVariable('Path', 'User') -split ';' | Where-Object { $_ }); if ($userPath -notcontains $bin) { [Environment]::SetEnvironmentVariable('Path', (($userPath + $bin) -join ';'), 'User') }; $env:Path = "$bin;$env:Path"; getgo --version
+$bin = Join-Path $HOME '.local\bin'; New-Item -ItemType Directory -Force -Path $bin | Out-Null; Invoke-WebRequest https://github.com/zackees/getgo/releases/latest/download/getgo -OutFile (Join-Path $bin 'getgo.com'); $userPath = @([Environment]::GetEnvironmentVariable('Path', 'User') -split ';' | Where-Object { $_ }); if ($userPath -notcontains $bin) { [Environment]::SetEnvironmentVariable('Path', (($bin + $userPath) -join ';'), 'User') }; if (($env:Path -split ';') -notcontains $bin) { $env:Path = "$bin;$env:Path" }; getgo --version
 ```
 
-Windows saves the same download as `getgo.com` because it is a real PE
-executable. Both installers use `~/.local/bin`, the same user-local tool
-directory used by uv.
+Command Prompt (`cmd.exe`):
+
+```bat
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$bin=Join-Path $HOME '.local\bin'; New-Item -ItemType Directory -Force -Path $bin | Out-Null; Invoke-WebRequest https://github.com/zackees/getgo/releases/latest/download/getgo -OutFile (Join-Path $bin 'getgo.com'); $p=@([Environment]::GetEnvironmentVariable('Path','User') -split ';' | Where-Object { $_ }); if ($p -notcontains $bin) { [Environment]::SetEnvironmentVariable('Path',(($bin+$p)-join ';'),'User') }" && set "PATH=%USERPROFILE%\.local\bin;%PATH%" && getgo --version
+```
+
+Git Bash:
+
+```bash
+bin="$HOME/.local/bin"; mkdir -p "$bin" && curl -LsSf https://github.com/zackees/getgo/releases/latest/download/getgo -o "$bin/getgo.com" && powershell.exe -NoProfile -ExecutionPolicy Bypass -Command '$bin=Join-Path $HOME ".local\bin"; $p=@([Environment]::GetEnvironmentVariable("Path","User") -split ";" | Where-Object { $_ }); if ($p -notcontains $bin) { [Environment]::SetEnvironmentVariable("Path",(($bin+$p)-join ";"),"User") }' && case ":$PATH:" in *:"$bin":*) ;; *) export PATH="$bin:$PATH" ;; esac && getgo --version
+```
+
+Windows saves the download as `getgo.com` because it is a native PE
+executable. All three commands persist the same per-user directory in the
+Windows user PATH, so a new PowerShell, Command Prompt, or Git Bash process
+can resolve `getgo`.
 
 That's the whole installation. The same downloaded file runs natively on
 Windows, macOS (Intel + Apple Silicon), and Linux (glibc + musl, x86_64 +
@@ -67,33 +88,69 @@ getgo intentionally stays install-only; after its first run, the bootstrapped
 ## The public API
 
 ```
-getgo <package> [<package>...]
+getgo [--yes | --no-modify-path] <package> [<package>...]
 ```
 
 That line is the entire contract, and everything else in this project is
 designed backward from it:
 
-- **Every argument is a PyPI package name.** No subcommands, no verbs, no
-  flag ceremony. `getgo ruff` installs `ruff`. (Only
-  `--`-prefixed args are reserved: `--help`, `--version`.)
+- **Every positional argument is a PyPI package name.** No subcommands or
+  verbs: `getgo ruff` installs `ruff`. The only behavior flags are `--yes`
+  and `--no-modify-path`, alongside `--help` and `--version`.
 - **Every install follows one path:**
   `uv tool install --managed-python <package>@latest`.
   Each package gets a persistent, isolated per-user environment backed only
   by uv-managed Python; target tools are never installed into or based on
   system Python.
-- **Each package's executables are immediately chainable when uv's tool bin
-  directory is already on `PATH`.** The quick starts above predeclare the
-  default `~/.local/bin` location, so `getgo ruff && ruff --version`
-  resolves in the same shell line. getgo also asks uv to wire future shells.
-  If a custom or inherited environment does not contain the directory,
-  getgo prints the exact `export` or `$env:Path` command to run in the current
-  shell; a child process cannot modify its parent shell.
+- **PATH setup is explicit and verified.** If uv or an installed tool lands
+  outside the current `PATH`, an interactive getgo asks before changing a
+  startup file or the Windows user PATH; Enter means yes. `--yes` is the
+  automation-friendly opt-in, while `--no-modify-path` guarantees no change.
+  A noninteractive invocation never prompts or edits without `--yes`.
+  GitHub Actions is detected through `GITHUB_PATH` and configured for the
+  next step. getgo always prints current-shell activation commands because a
+  child process cannot change its parent shell.
 - **Exit code**: 0 iff every package installed. First failure is reported
   with uv's error attached.
 - **Distribution-independent**: the contract is identical from the curl'd
   `.com` file and from `pip install getgo` — two front doors, one API.
 - Everything below this line — uv, APE, Cosmopolitan, ZIP config — is
   implementation detail and may change; this contract may not.
+
+## PATH bootstrap
+
+`~/.local/bin` is the XDG-recommended user executable directory and is uv's
+default on Linux and macOS, but it is not universally present on `PATH`.
+Debian and Ubuntu commonly add it conditionally; a stock Alpine shell does
+not. getgo therefore tests the actual process PATH instead of assuming a
+distribution configured it.
+
+getgo discovers uv through `PATH`, `UV_INSTALL_DIR`, `UV_UNMANAGED_INSTALL`,
+`XDG_BIN_HOME`, the `bin` sibling of `XDG_DATA_HOME`, and finally
+`~/.local/bin`. It asks uv for the independently configurable tool launcher
+directory with `uv tool dir --bin`; both directories are handled when they
+differ. During uv bootstrap, `UV_NO_MODIFY_PATH=1` prevents the nested
+installer from changing anything before getgo has permission.
+
+After consent, getgo consults `uv tool update-shell`. On Unix it deliberately
+writes its own guarded configuration, because uv's generated export can add a
+duplicate entry when a startup file is sourced again. That idempotent path
+covers POSIX sh, dash, Alpine ash, Bash, zsh, fish, ksh, tcsh, and Nushell. On
+Windows, uv's per-user registry update makes the same directory visible to new
+PowerShell, Command Prompt, and Git Bash processes. Existing startup-file
+content is preserved. If setup is refused, impossible, or unnecessary for the
+current process, getgo prints exact activation commands and still preserves
+the successful package-install exit code.
+
+For scripts, choose the policy explicitly:
+
+```console
+getgo --yes ruff             # persist a missing PATH automatically
+getgo --no-modify-path ruff  # install only; print activation instructions
+```
+
+The equivalent environment switches are `GETGO_YES=1` and
+`GETGO_NO_MODIFY_PATH=1`.
 
 ## Why
 
@@ -172,10 +229,12 @@ than replaces). The flag forbids uv from selecting a system interpreter, and
 - installs into a persistent isolated environment and links the executable
   into uv's XDG/user executable directory (`~/.local/bin` by default).
 
-getgo always finishes by ensuring PATH wiring for future shells (uv's
-`uv tool update-shell`) and, if the *current* shell can't resolve
-that executable directory, printing the exact one-line `export`/`$env:` fix —
-in service of the public-API guarantee that installed tools chain immediately.
+getgo always finishes by checking both uv's directory and `uv tool dir --bin`.
+With consent, it consults uv's shell support, writes guarded Unix startup
+configuration itself, and uses uv's Windows user-registry support. It also
+prints current-process commands for POSIX shells and for PowerShell, Command
+Prompt, and Git Bash, because a child process cannot rewrite its parent's
+environment.
 
 **Requirement this places on a package:** it must publish wheels for the
 platforms its users run — *including `musllinux` wheels* if Alpine matters.

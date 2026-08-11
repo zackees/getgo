@@ -149,6 +149,11 @@ public static class FakeInstaller {
             line + "]\n",
             new UTF8Encoding(false)
         );
+        File.WriteAllText(
+            Environment.GetEnvironmentVariable("GETGO_FAKE_INSTALL_ENV_LOG"),
+            Environment.GetEnvironmentVariable("UV_NO_MODIFY_PATH") ?? "",
+            new UTF8Encoding(false)
+        );
         int exitCode = Int32.Parse(Environment.GetEnvironmentVariable("GETGO_FAKE_INSTALL_EXIT") ?? "0");
         if (exitCode != 0) return exitCode;
         string target = Path.Combine(Environment.GetEnvironmentVariable("USERPROFILE"), ".local", "bin");
@@ -203,7 +208,6 @@ def entrypoint(request: pytest.FixtureRequest, tmp_path: Path) -> EntryPoint:
             windows_artifact = tmp_path / "getgo.com"
             shutil.copyfile(artifact, windows_artifact)
             return EntryPoint("ape", (str(windows_artifact),))
-        artifact.chmod(artifact.stat().st_mode | stat.S_IXUSR)
         loader = request.getfixturevalue("ape_loader")
         return EntryPoint("ape", (str(loader), str(artifact)))
     raise AssertionError(f"unknown entry point: {request.param}")
@@ -217,6 +221,17 @@ def run_getgo(
     timeout: int = 30,
 ) -> subprocess.CompletedProcess[str]:
     merged = os.environ.copy()
+    for name in (
+        "GETGO_YES",
+        "GETGO_NO_MODIFY_PATH",
+        "GITHUB_PATH",
+        "UV_INSTALL_DIR",
+        "UV_UNMANAGED_INSTALL",
+        "XDG_BIN_HOME",
+        "XDG_DATA_HOME",
+        "XDG_CONFIG_HOME",
+    ):
+        merged.pop(name, None)
     merged.update(env)
     source_path = str(ROOT / "src")
     if entrypoint.source_tree:
@@ -228,6 +243,7 @@ def run_getgo(
         [*entrypoint.command, *args],
         cwd=ROOT,
         env=merged,
+        input="",
         capture_output=True,
         text=True,
         timeout=timeout,
@@ -297,6 +313,8 @@ raise SystemExit(99)
         "USERPROFILE": str(home),
         "PATH": os.pathsep.join((str(bin_dir), os.environ.get("PATH", ""))),
     }
+    if os.name == "nt":
+        env["_GETGO_TEST_WINDOWS_PATH_FILE"] = str(tmp_path / "windows-user-path.txt")
     return FakeUv(executable, bin_dir, tool_bin, log, home, env)
 
 
@@ -306,6 +324,7 @@ def fake_installer_factory(tmp_path: Path, fake_uv: FakeUv, native_windows_helpe
         transport_dir = tmp_path / f"transport-{program}"
         transport_dir.mkdir()
         transport_log = tmp_path / f"{program}-calls.jsonl"
+        install_env_log = tmp_path / f"{program}-install-env.txt"
 
         if os.name == "nt":
             assert program in {"powershell", "pwsh"}
@@ -320,6 +339,7 @@ def fake_installer_factory(tmp_path: Path, fake_uv: FakeUv, native_windows_helpe
                 if installer_exit
                 else "\n".join(
                     (
+                        '/bin/printf "%s" "$UV_NO_MODIFY_PATH" > "$GETGO_FAKE_INSTALL_ENV_LOG"',
                         '/bin/mkdir -p "$HOME/.local/bin"',
                         '/bin/cp "$GETGO_FAKE_UV_SOURCE" "$HOME/.local/bin/uv"',
                         '/bin/chmod +x "$HOME/.local/bin/uv"',
@@ -342,6 +362,7 @@ def fake_installer_factory(tmp_path: Path, fake_uv: FakeUv, native_windows_helpe
                 "GETGO_FAKE_TRANSPORT_LOG": str(transport_log),
                 "GETGO_FAKE_UV_SOURCE": str(fake_uv.executable),
                 "GETGO_FAKE_INSTALL_EXIT": str(installer_exit),
+                "GETGO_FAKE_INSTALL_ENV_LOG": str(install_env_log),
             }
         )
         return executable, transport_log, env

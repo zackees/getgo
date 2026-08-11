@@ -6,23 +6,23 @@ Ported and generalized from [soldr#2460](https://github.com/zackees/soldr/issues
 ## Public API — the contract everything is designed around
 
 ```
-export PATH="$HOME/.local/bin:$PATH" && curl <url> -o getgo && ./getgo <package> [<package>...] && <tool> --version
+export PATH="$HOME/.local/bin:$PATH" && curl <url> -o getgo && ./getgo [--yes | --no-modify-path] <package>... && <tool> --version
 ```
 
 Owner directive (2026-08-11): this line **is** the product. Constraints it
 imposes, in priority order:
 
-1. **Every positional arg is a PyPI package name.** No verbs, no
-   subcommands. `getgo ruff` installs `ruff`. Reserved
-   namespace: `--`-prefixed args only (`--help`, `--version`).
+1. **Every positional arg is a PyPI package name.** No verbs or subcommands.
+   `getgo ruff` installs `ruff`. `--yes` opts into unattended PATH setup and
+   `--no-modify-path` forbids it; `--help` and `--version` are informational.
 2. **Immediately-chainable result with the tool directory predeclared**:
    the documented quick start places `~/.local/bin` on `PATH`, so each
    package's executables resolve in the same shell line (`getgo ruff &&
    ruff --version`). PATH lookup is per-command, so binaries appearing there
-   mid-chain resolve without a new shell. getgo wires future shells
-   best-effort (`uv tool update-shell`) and prints the exact one-line fix when
-   a custom inherited `PATH` lacks the directory; a child cannot modify its
-   parent shell.
+   mid-chain resolve without a new shell. When a directory is missing, getgo
+   obtains consent, consults `uv tool update-shell`, writes guarded Unix shell
+   profiles itself, and prints current-process commands; a child cannot modify
+   its parent shell.
 3. **One hosted generic file** at a stable URL (GitHub Releases
    `latest/download/getgo`). No per-tool artifact required for the primary
    flow.
@@ -67,14 +67,16 @@ Grounded in the APE/Cosmopolitan research (sources at bottom):
   Irrelevant to getgo's config-only use, but it is the reason the fat-binary
   design was dropped: payload extraction machinery (content-addressed cache,
   atomic rename, GC) all became unnecessary once uv owns artifact delivery.
-- **uv detection**: check `PATH`, then uv's default install locations
-  (`~/.local/bin/uv`, `%USERPROFILE%\.local\bin\uv.exe`). Present → skip
-  install (idempotent re-runs).
+- **uv detection**: check `PATH`, `UV_INSTALL_DIR`, `UV_UNMANAGED_INSTALL`,
+  `XDG_BIN_HOME`, the `bin` sibling of `XDG_DATA_HOME`, then uv's default
+  locations (`~/.local/bin/uv`, `%USERPROFILE%\.local\bin\uv.exe`). Present
+  → skip install (idempotent re-runs).
 - **uv installation**: spawn the official installers via preinstalled tools —
   Unix: `curl -LsSf https://astral.sh/uv/install.sh | sh`, fallback
   `wget -qO- … | sh` (busybox wget suffices on Alpine); Windows:
   `powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"`.
-  No TLS/HTTP client is linked into the loader.
+  The child receives `UV_NO_MODIFY_PATH=1`, preserving getgo's consent
+  boundary. No TLS/HTTP client is linked into the loader.
 - **Delegation**: `uv tool install --managed-python <package>@latest`. Chosen
   over `uv pip install --system`, which requires a pre-existing system Python
   and fights PEP 668 externally-managed distros. `--managed-python` forbids
@@ -86,10 +88,18 @@ Grounded in the APE/Cosmopolitan research (sources at bottom):
 - **Spawn semantics**: spawn + wait + forward exit code everywhere
   (Cosmopolitan's `execve` on Windows spawns a child rather than replacing
   the process, so spawn/wait is the one portable shape).
-- **Post-install**: query the executable directory with `uv tool dir --bin`,
-  run `uv tool update-shell` best-effort for future shells, and, if the
-  inherited `PATH` does not contain that directory, print the exact current
-  Bash or PowerShell command. A shell-profile update failure cannot turn
+- **Post-install**: query the executable directory with `uv tool dir --bin`
+  and independently check it and uv's directory. Missing directories trigger
+  an interactive default-yes prompt; `--yes`/`GETGO_YES=1` opts in without a
+  TTY, while `--no-modify-path`/`GETGO_NO_MODIFY_PATH=1` forbids mutation.
+  Noninteractive runs never prompt or edit implicitly. GitHub Actions uses
+  `GITHUB_PATH`. Otherwise getgo consults `uv tool update-shell`. On Unix it
+  exposes the tool directory to that probe so uv makes no unguarded edits,
+  then getgo writes idempotent configuration for sh/dash/ash, Bash, zsh,
+  fish, ksh, tcsh, and Nushell. On Windows uv persists the per-user registry
+  PATH shared by PowerShell, cmd.exe, and Git Bash, with a getgo registry
+  fallback for a distinct uv directory or uv failure. Exact current-process
+  commands are always printed when needed. A PATH failure cannot turn
   successful package installation into failure.
 
 ## Builder pipeline (`getgo bake`)

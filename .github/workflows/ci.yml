@@ -91,6 +91,14 @@ jobs:
           name: getgo-${{ github.sha }}
           path: dist
       - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+      - name: Prepare native executable
+        shell: pwsh
+        run: |
+          if ($IsWindows) {
+            Copy-Item -LiteralPath dist/getgo -Destination dist/getgo.com
+          } else {
+            chmod +x dist/getgo
+          }
       - name: Run shared native Windows conformance
         if: runner.os == 'Windows'
         shell: pwsh
@@ -98,37 +106,127 @@ jobs:
           uv sync --locked --extra test
           $env:GETGO_ENTRYPOINTS = "ape"
           uv run pytest -q tests/test_cli_contract.py
-      - name: Smoke APE startup, uv delegation, PATH, and exit code
+      - name: Export tool path to the next macOS Actions step
         if: runner.os != 'Windows'
         shell: bash
         run: |
-          chmod +x dist/getgo
-          export UV_TOOL_DIR="$RUNNER_TEMP/uv-tools"
-          export UV_TOOL_BIN_DIR="$RUNNER_TEMP/uv-bin"
-          export PATH="$UV_TOOL_BIN_DIR:$PATH"
+          export UV_TOOL_DIR="$RUNNER_TEMP/github-tools"
+          export UV_TOOL_BIN_DIR="$RUNNER_TEMP/github-bin"
+          /bin/sh dist/getgo ruff
+          test -x "$UV_TOOL_BIN_DIR/ruff"
+          case ":$PATH:" in *:"$UV_TOOL_BIN_DIR":*) exit 1 ;; esac
+      - name: Use tool from the macOS Actions path
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          test "$(command -v ruff)" = "$RUNNER_TEMP/github-bin/ruff"
+          ruff --version
+      - name: Persist and load macOS zsh and Bash paths
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          unset GITHUB_PATH
+          export PATH="$(printf '%s' "$PATH" | tr ':' '\n' | grep -Fvx "$RUNNER_TEMP/github-bin" | paste -sd: -)"
+          for shell_name in zsh bash; do
+            shell_home="$RUNNER_TEMP/home-$shell_name"
+            mkdir -p "$shell_home"
+            export HOME="$shell_home"
+            export ZDOTDIR="$shell_home"
+            export SHELL="$(command -v "$shell_name")"
+            export UV_TOOL_DIR="$RUNNER_TEMP/$shell_name-tools"
+            export UV_TOOL_BIN_DIR="$RUNNER_TEMP/$shell_name-bin"
+            /bin/sh dist/getgo --yes ruff
+            if [ "$shell_name" = zsh ]; then
+              resolved="$(HOME="$shell_home" ZDOTDIR="$shell_home" zsh -c 'command -v ruff')"
+              test "$resolved" = "$UV_TOOL_BIN_DIR/ruff"
+              HOME="$shell_home" ZDOTDIR="$shell_home" zsh -c 'ruff --version'
+            else
+              resolved="$(HOME="$shell_home" bash --noprofile --rcfile "$shell_home/.bashrc" -i -c 'command -v ruff')"
+              test "$resolved" = "$UV_TOOL_BIN_DIR/ruff"
+              HOME="$shell_home" bash --noprofile --rcfile "$shell_home/.bashrc" -i -c 'ruff --version'
+            fi
+          done
           test "$(/bin/sh dist/getgo --version)" = "getgo 0.1.0"
-          /bin/sh dist/getgo pycowsay
-          pycowsay getgo
           set +e
           /bin/sh dist/getgo --definitely-invalid
           code=$?
           set -e
           test "$code" -eq 2
-      - name: Smoke PE startup, uv delegation, PATH, and exit code
+      - name: Export tool path to the next Windows Actions step
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          Copy-Item -LiteralPath dist/getgo -Destination dist/getgo.com
-          $env:UV_TOOL_DIR = "$env:RUNNER_TEMP\uv-tools"
-          $env:UV_TOOL_BIN_DIR = "$env:RUNNER_TEMP\uv-bin"
-          New-Item -ItemType Directory -Force -Path $env:UV_TOOL_BIN_DIR | Out-Null
-          $env:Path = "$env:UV_TOOL_BIN_DIR;$env:Path"
+          $env:UV_TOOL_DIR = "$env:RUNNER_TEMP\github-tools"
+          $env:UV_TOOL_BIN_DIR = "$env:RUNNER_TEMP\github-bin"
+          & dist/getgo.com ruff
+          if ($LASTEXITCODE -ne 0) { throw "GitHub PATH install failed" }
+          if (($env:Path -split ';') -contains $env:UV_TOOL_BIN_DIR) { throw "tool bin unexpectedly reached current PATH" }
+          if (!(Test-Path "$env:UV_TOOL_BIN_DIR\ruff.exe")) { throw "ruff launcher missing" }
+      - name: Use tool from the Windows Actions path
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ruff = (Get-Command ruff).Source
+          if ((Split-Path -Parent $ruff) -ne "$env:RUNNER_TEMP\github-bin") { throw "wrong ruff resolved: $ruff" }
+          ruff --version
+      - name: Persist Windows user PATH and verify PowerShell, cmd, and Git Bash
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $beforeUserPath = [Environment]::GetEnvironmentVariable('Path', 'User')
+          $beforeProcessPath = $env:Path
+          $beforeGithubPath = $env:GITHUB_PATH
+          $currentPowerShell = (Get-Process -Id $PID).Path
+          try {
+            $env:GITHUB_PATH = $null
+            $env:UV_TOOL_DIR = "$env:RUNNER_TEMP\registry-tools"
+            $env:UV_TOOL_BIN_DIR = "$env:RUNNER_TEMP\registry-bin"
+            $env:Path = (($env:Path -split ';' | Where-Object { $_ -ne $env:UV_TOOL_BIN_DIR }) -join ';')
+            & dist/getgo.com --yes ruff
+            if ($LASTEXITCODE -ne 0) { throw "registry PATH install failed" }
+
+            $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
+            if (($userPath -split ';') -notcontains $env:UV_TOOL_BIN_DIR) { throw "tool bin missing from user PATH" }
+            $machinePath = [Environment]::GetEnvironmentVariable('Path', 'Machine')
+            $env:Path = "$userPath;$machinePath"
+
+            & $currentPowerShell -NoProfile -NonInteractive -Command 'ruff --version'
+            if ($LASTEXITCODE -ne 0) { throw "PowerShell could not resolve ruff" }
+            & "$env:SystemRoot\System32\cmd.exe" /d /c "ruff --version"
+            if ($LASTEXITCODE -ne 0) { throw "cmd.exe could not resolve ruff" }
+            $gitBash = Join-Path $env:ProgramFiles 'Git\bin\bash.exe'
+            & $gitBash --noprofile --norc -c 'ruff --version'
+            if ($LASTEXITCODE -ne 0) { throw "Git Bash could not resolve ruff" }
+          } finally {
+            [Environment]::SetEnvironmentVariable('Path', $beforeUserPath, 'User')
+            $env:Path = $beforeProcessPath
+            $env:GITHUB_PATH = $beforeGithubPath
+          }
+
           $version = & dist/getgo.com --version
           if ($LASTEXITCODE -ne 0 -or $version -ne "getgo 0.1.0") { throw "version smoke failed" }
-          & dist/getgo.com pycowsay
-          if ($LASTEXITCODE -ne 0) { throw "install smoke failed" }
-          pycowsay getgo
-          if ($LASTEXITCODE -ne 0) { throw "PATH smoke failed" }
           & dist/getgo.com --definitely-invalid 2>$null
           if ($LASTEXITCODE -ne 2) { throw "exit-code smoke failed: $LASTEXITCODE" }
           exit 0
+
+  shell-bootstrap-linux:
+    name: Real Linux shells
+    needs: artifacts-and-alpine
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: getgo-${{ github.sha }}
+          path: dist
+      - uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          enable-cache: true
+      - name: Install shell matrix
+        run: sudo apt-get update && sudo apt-get install --yes zsh fish ksh tcsh busybox
+      - run: uv sync --locked --extra test
+      - name: Verify Bash, zsh, fish, dash, ash, ksh, and tcsh
+        run: uv run pytest -q tests/test_shell_matrix.py
+        env:
+          GETGO_RUN_SHELL_MATRIX: "1"

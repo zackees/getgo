@@ -19,7 +19,8 @@ def test_stock_alpine_managed_tool_lifecycle() -> None:
     script = r"""
 set -eu
 export HOME=/tmp/getgo-home
-export PATH="$HOME/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+export SHELL=/bin/ash
 ! command -v python
 ! command -v python3
 ! command -v uv
@@ -33,19 +34,24 @@ exit 93
 EOF
 chmod +x /tmp/system-bin/python3
 ln -s python3 /tmp/system-bin/python
-export PATH="$HOME/.local/bin:/tmp/system-bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+export PATH="/tmp/system-bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
 cp /artifact/getgo /tmp/getgo
 chmod +x /tmp/getgo
 
 # A real package install must bootstrap uv and a user-managed Python.
-/bin/sh /tmp/getgo ruff
+mkdir -p "$HOME"
+printf '# preserved profile content\n' > "$HOME/.profile"
+/bin/sh /tmp/getgo --yes ruff
 test ! -e /tmp/system-python-calls
-latest_version="$(ruff --version)"
+grep -F '# preserved profile content' "$HOME/.profile"
+test "$(grep -Fc '# getgo PATH bootstrap' "$HOME/.profile")" -eq 1
+latest_version="$(HOME="$HOME" /bin/ash -l -c 'ruff --version')"
 printf '%s\n' "$latest_version" | grep -F "ruff "
 test -x "$HOME/.local/bin/uv"
 test ! -e /usr/bin/python
 test ! -e /usr/bin/python3
+export PATH="$HOME/.local/bin:$PATH"
 
 tool_bin="$("$HOME/.local/bin/uv" tool dir --bin)"
 test "$tool_bin" = "$HOME/.local/bin"
