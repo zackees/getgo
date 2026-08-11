@@ -2,26 +2,36 @@
 
 **Install any PyPI tools on any machine with one downloaded file.**
 
+## Install
+
+Install `getgo` once for the current user—no administrator privileges needed.
+Each command puts it in the standard user-local executable directory and makes
+that directory available both now and in future login shells.
+
+### Linux and macOS
+
 ```bash
-export PATH="$HOME/.local/bin:$PATH" \
-  && curl -LsSf https://github.com/zackees/getgo/releases/latest/download/getgo -o getgo \
-  && chmod +x getgo \
-  && ./getgo soldr reld \
-  && soldr --version \
-  && red --version
+bin="$HOME/.local/bin"; case "${SHELL##*/}:$(uname -s)" in zsh:*) profile="$HOME/.zprofile" ;; bash:Darwin) profile="$HOME/.bash_profile" ;; *) profile="$HOME/.profile" ;; esac; mkdir -p "$bin" && curl -LsSf https://github.com/zackees/getgo/releases/latest/download/getgo -o "$bin/getgo" && chmod +x "$bin/getgo" && { grep -Fqx 'export PATH="$HOME/.local/bin:$PATH"' "$profile" 2>/dev/null || printf '\nexport PATH="$HOME/.local/bin:$PATH"\n' >> "$profile"; } && export PATH="$bin:$PATH" && getgo --version
 ```
 
-That's the whole story. The same `getgo` file runs natively on Windows, macOS
-(Intel + Apple Silicon), and Linux (glibc + musl, x86_64 + aarch64),
-unchanged.
-
-Windows (same file, it's a real PE):
+### Windows PowerShell
 
 ```powershell
-$env:Path = "$HOME\.local\bin;$env:Path"
-iwr https://github.com/zackees/getgo/releases/latest/download/getgo -OutFile getgo.com
-.\getgo.com soldr reld
+$bin = Join-Path $HOME '.local\bin'; New-Item -ItemType Directory -Force -Path $bin | Out-Null; Invoke-WebRequest https://github.com/zackees/getgo/releases/latest/download/getgo -OutFile (Join-Path $bin 'getgo.com'); $userPath = @([Environment]::GetEnvironmentVariable('Path', 'User') -split ';' | Where-Object { $_ }); if ($userPath -notcontains $bin) { [Environment]::SetEnvironmentVariable('Path', (($userPath + $bin) -join ';'), 'User') }; $env:Path = "$bin;$env:Path"; getgo --version
+```
+
+Windows saves the same download as `getgo.com` because it is a real PE
+executable. Both installers use `~/.local/bin`, the same user-local tool
+directory used by uv.
+
+That's the whole installation. The same downloaded file runs natively on
+Windows, macOS (Intel + Apple Silicon), and Linux (glibc + musl, x86_64 +
+aarch64), unchanged. Install tools from any terminal with:
+
+```console
+getgo soldr reld
 soldr --version
+red --version
 ```
 
 Already have Python tooling? getgo is also a normal PyPI package with the
